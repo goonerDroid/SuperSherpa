@@ -17,3 +17,5 @@ local.properties
 /AGENTS.md
 /docs/mvp-spec-plan.md
 app/libs/sherpa-onnx-1.12.34.aar
+app/src/main/assets/sherpa-onnx-streaming-zipformer-en-2023-06-26/*
+!app/src/main/assets/sherpa-onnx-streaming-zipformer-en-2023-06-26/README.md

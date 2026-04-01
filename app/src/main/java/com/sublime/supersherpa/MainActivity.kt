@@ -97,8 +97,8 @@ enum class AppDestinations(
     val label: String,
     val icon: Int,
 ) {
-    HOME("Mic Test", R.drawable.ic_home),
-    FAVORITES("Sherpa", R.drawable.ic_favorite),
+    HOME("Transcribe", R.drawable.ic_home),
+    FAVORITES("Notes", R.drawable.ic_favorite),
     PROFILE("Profile", R.drawable.ic_account_box),
 }
 

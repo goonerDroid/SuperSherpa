@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -15,20 +16,20 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sublime.supersherpa.model.VoiceState
 
 @Composable
 fun MicrophoneTestScreen(
     modifier: Modifier = Modifier,
-    viewModel: MicrophoneTestViewModel = viewModel(),
+    viewModel: TranscriptionViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -52,8 +53,8 @@ fun MicrophoneTestScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(text = "On-device microphone test")
-        Text(text = "This screen exercises the real AudioRecord path.")
+        Text(text = "Transcribe")
+        Text(text = "Live offline transcription powered by Sherpa-ONNX.")
 
         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
             Column(
@@ -63,8 +64,7 @@ fun MicrophoneTestScreen(
             ) {
                 Text(text = "Permission: ${if (uiState.permissionGranted) "granted" else "missing"}")
                 Text(text = "State: ${uiState.voiceState.toDisplayText()}")
-                Text(text = "Frames captured: ${uiState.frameCount}")
-                Text(text = "Last frame size: ${uiState.lastFrameSize}")
+                Text(text = "Engine: ${if (uiState.engineReady) "ready" else "loading"}")
                 uiState.lastError?.let { error ->
                     Text(text = "Error: $error")
                 }
@@ -83,8 +83,8 @@ fun MicrophoneTestScreen(
             Text(
                 text = when {
                     !uiState.permissionGranted -> "Grant mic permission"
-                    uiState.isRecording -> "Stop recording"
-                    else -> "Start recording"
+                    uiState.isRecording -> "Stop transcription"
+                    else -> "Start transcription"
                 }
             )
         }
@@ -103,13 +103,44 @@ fun MicrophoneTestScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.Start,
             ) {
-                Text(text = "Audio stream")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "Transcript")
+                    Button(
+                        onClick = viewModel::onCopyClicked,
+                        enabled = uiState.partialTranscript.isNotBlank(),
+                    ) {
+                        Text("Copy")
+                    }
+                }
                 SelectionContainer {
                     Text(
-                        text = uiState.streamText.ifBlank {
-                            "No frames captured yet."
+                        text = uiState.partialTranscript.ifBlank {
+                            "Start speaking to see the live transcript here."
                         }
                     )
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.Start,
+            ) {
+                Text(text = "Saved notes")
+                if (uiState.notes.isEmpty()) {
+                    Text(text = "No saved notes yet.")
+                } else {
+                    uiState.notes.take(5).forEach { note ->
+                        SelectionContainer {
+                            Text(text = note.text)
+                        }
+                    }
                 }
             }
         }
