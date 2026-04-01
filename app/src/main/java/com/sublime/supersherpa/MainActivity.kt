@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.sublime.supersherpa.core.ai.SherpaSmokeTestResult
 import com.sublime.supersherpa.core.ai.SherpaSmokeTestRunner
 import com.sublime.supersherpa.model.VoiceState
+import com.sublime.supersherpa.feature.transcription.MicrophoneTestScreen
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -76,11 +77,11 @@ fun SuperSherpaApp() {
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             when (currentDestination) {
-                AppDestinations.HOME -> SherpaSmokeTestScreen(
+                AppDestinations.HOME -> MicrophoneTestScreen(
                     modifier = Modifier.padding(innerPadding)
                 )
                 AppDestinations.FAVORITES -> Greeting(
-                    name = "Favorites",
+                    name = "Sherpa",
                     modifier = Modifier.padding(innerPadding)
                 )
                 AppDestinations.PROFILE -> Greeting(
@@ -96,8 +97,8 @@ enum class AppDestinations(
     val label: String,
     val icon: Int,
 ) {
-    HOME("Home", R.drawable.ic_home),
-    FAVORITES("Favorites", R.drawable.ic_favorite),
+    HOME("Mic Test", R.drawable.ic_home),
+    FAVORITES("Sherpa", R.drawable.ic_favorite),
     PROFILE("Profile", R.drawable.ic_account_box),
 }
 
