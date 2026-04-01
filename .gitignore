@@ -14,3 +14,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+/AGENTS.md
+/docs/mvp-spec-plan.md
+app/libs/sherpa-onnx-1.12.34.aar
