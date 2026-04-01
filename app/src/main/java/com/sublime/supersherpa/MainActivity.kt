@@ -34,6 +34,7 @@ import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import com.sublime.supersherpa.core.ai.SherpaSmokeTestResult
 import com.sublime.supersherpa.core.ai.SherpaSmokeTestRunner
+import com.sublime.supersherpa.model.VoiceState
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -104,16 +105,21 @@ enum class AppDestinations(
 fun SherpaSmokeTestScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var result by remember { mutableStateOf<SherpaSmokeTestResult?>(null) }
-    var isRunning by rememberSaveable { mutableStateOf(false) }
+    var voiceState by remember { mutableStateOf<VoiceState>(VoiceState.Idle) }
     val runSmokeTest: () -> Unit = {
         scope.launch {
-            isRunning = true
+            voiceState = VoiceState.Processing
             try {
                 result = withContext(Dispatchers.Default) {
                     SherpaSmokeTestRunner.run()
                 }
+                voiceState = VoiceState.Result("Sherpa smoke test passed")
             } finally {
-                isRunning = false
+                if (result?.passed != true) {
+                    voiceState = VoiceState.Error(
+                        result?.errorMessage ?: "Sherpa smoke test failed"
+                    )
+                }
             }
         }
     }
@@ -133,11 +139,13 @@ fun SherpaSmokeTestScreen(modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(12.dp))
         Text(text = "This validates the bundled JNI layer before transcription wiring.")
         Spacer(modifier = Modifier.height(20.dp))
+        Text(text = "Voice state: ${voiceState.toDisplayText()}")
+        Spacer(modifier = Modifier.height(12.dp))
         Button(
             onClick = runSmokeTest,
-            enabled = !isRunning,
+            enabled = voiceState != VoiceState.Processing,
         ) {
-            Text(if (isRunning) "Running..." else "Run smoke test")
+            Text(if (voiceState == VoiceState.Processing) "Running..." else "Run smoke test")
         }
         Spacer(modifier = Modifier.height(20.dp))
         result?.let { smokeResult ->
@@ -163,6 +171,14 @@ fun SherpaSmokeTestScreen(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+private fun VoiceState.toDisplayText(): String = when (this) {
+    VoiceState.Idle -> "Idle"
+    VoiceState.Listening -> "Listening"
+    VoiceState.Processing -> "Processing"
+    is VoiceState.Result -> "Result: $text"
+    is VoiceState.Error -> "Error: $message"
 }
 
 @Composable
