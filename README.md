@@ -1,53 +1,86 @@
 # SuperSherpa
 
-SuperSherpa is an Android app for fully offline, on-device speech transcription. The product direction is a Superwhisper-style MVP with a floating mic overlay, real-time transcription, and local-only processing.
+SuperSherpa is a fully offline Android speech transcription app built with Kotlin, Jetpack Compose, and a Rust backend.
 
-## Current Stack
+It is designed for fast, private, on-device transcription with a modern mobile UI and a lightweight architecture that keeps inference separate from the Android frontend.
+
+## What It Does
+
+SuperSherpa provides:
+
+- floating mic transcription
+- real-time speech-to-text
+- clipboard copy support
+- fully offline operation
+- local-only audio processing
+- a Compose-first Android experience
+
+## Why This Approach
+
+SuperSherpa uses a Kotlin + Compose Android client and a Rust transcription backend.
+
+This gives the app:
+
+- a modern Android UI stack
+- clean separation between UI and inference
+- strong performance for audio and model handling
+- the ability to use the latest Parakeet models locally
+- a backend that can evolve independently of the Android app
+
+## Tech Stack
 
 - Kotlin
 - Jetpack Compose
 - Material 3
-- Jetpack Compose adaptive navigation
-- Room
-- Koin
+- Navigation Compose
+- ViewModel
+- StateFlow
 - Coroutines
-- Sherpa-ONNX via local AAR
+- DataStore
+- Room
+- Rust backend for transcription
+- JNI bridge between Kotlin and Rust
 
-## Current App Shape
+## Architecture
 
-The project is set up as a single Android app module:
+The app follows a modern Android architecture:
 
-- App package: `com.sublime.supersherpa`
-- Main entry point: `app/src/main/java/com/sublime/supersherpa/MainActivity.kt`
-- Minimum SDK: 26
-- Target SDK: 36
-- Compile SDK: 36
+- Compose for UI
+- ViewModel for screen state
+- StateFlow for observable state
+- repositories for data and native access
+- background work on coroutines
+- Rust for audio inference and transcription
 
-The current codebase already includes:
+Pipeline:
 
-- Compose UI scaffolding
-- Voice state model types
-- Room database and repository pieces
-- Basic test coverage
-- Local Sherpa-ONNX dependency wiring
+`Mic -> AudioRecord -> Rust backend -> Parakeet model -> Transcription -> UI`
 
 ## MVP Goals
 
-The intended offline transcription pipeline is:
+The initial release focuses on:
 
-`Mic -> AudioRecord -> SherpaEngine -> Real-time transcription -> Floating UI`
+- floating mic overlay
+- on-device speech-to-text
+- real-time transcription
+- copy to clipboard
+- offline-first operation
+- clean and responsive Compose UI
+- native backend integration through Rust
 
-Planned core features:
+## Voice State
 
-- Floating mic overlay
-- On-device speech-to-text
-- Streaming transcription
-- Copy transcription to clipboard
-- Fully offline operation
+The shared UI state model is centered around `VoiceState`:
+
+- `Idle`
+- `Listening`
+- `Processing`
+- `Result(text)`
+- `Error(message)`
 
 ## Project Structure
 
-New code is expected to live under these areas:
+Planned code areas:
 
 - `app/src/main/java/com/sublime/supersherpa/core/audio/`
 - `app/src/main/java/com/sublime/supersherpa/core/ai/`
@@ -56,32 +89,35 @@ New code is expected to live under these areas:
 - `app/src/main/java/com/sublime/supersherpa/feature/transcription/`
 - `app/src/main/java/com/sublime/supersherpa/ui/floating/`
 - `app/src/main/java/com/sublime/supersherpa/model/`
+- `rust/` or `native/` for the Rust backend
 
-## Voice State
+## Rust Backend
 
-The shared UI state contract is centered around `VoiceState`:
+The Rust layer handles:
 
-- `Idle`
-- `Listening`
-- `Processing`
-- `Result(text)`
-- `Error(message)`
+- Parakeet model loading
+- transcription inference
+- streaming and batch transcription logic
+- audio pipeline behavior
+- JNI callbacks back into Kotlin
 
-## Sherpa-ONNX Setup
+The goal is to keep the transcription engine small, fast, and independent from UI concerns.
 
-The app expects a local Sherpa AAR in:
+## Model Setup
 
-- `app/libs/sherpa-onnx-1.12.34.aar`
+SuperSherpa is intended to use the latest Parakeet models locally.
 
-Expected model assets for the MVP live under:
+Expected model assets live under:
 
 - `app/src/main/assets/models/encoder.onnx`
 - `app/src/main/assets/models/decoder.onnx`
 - `app/src/main/assets/models/tokens.txt`
 
+Depending on packaging strategy, these may also be delivered through local download or asset caching.
+
 ## Permissions
 
-The overlay and transcription flow are expected to use:
+The transcription and overlay flow uses:
 
 - `android.permission.RECORD_AUDIO`
 - `android.permission.FOREGROUND_SERVICE`
@@ -118,11 +154,11 @@ Run lint:
 
 ## Notes
 
-- Audio work should stay on `Dispatchers.IO`.
-- AI inference should stay on `Dispatchers.Default`.
-- UI updates should run on the main thread.
-- The overlay service should remain available after the host activity closes, subject to Android platform limits.
-- The MVP should stay offline-first and avoid cloud dependencies.
+- Audio capture should run on `Dispatchers.IO`.
+- Inference should run off the main thread.
+- UI state should be owned by `ViewModel`.
+- Overlay behavior must respect Android background limits.
+- The app should remain fully offline and avoid cloud dependencies.
 
 ## License
 
