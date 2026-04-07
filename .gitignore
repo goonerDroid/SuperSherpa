@@ -10,6 +10,8 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+/target/
+/model_assets/build/
 /captures
 .externalNativeBuild
 .cxx
@@ -19,3 +21,7 @@ local.properties
 app/libs/sherpa-onnx-1.12.34.aar
 app/src/main/assets/sherpa-onnx-streaming-zipformer-en-2023-06-26/*
 !app/src/main/assets/sherpa-onnx-streaming-zipformer-en-2023-06-26/README.md
+/app/src/main/jniLibs/**/*.so
+/app/src/main/assets/parakeet-tdt-0.6b-v3-int8/*
+/model_assets/src/main/assets/parakeet-tdt-0.6b-v3-int8/*
+!/model_assets/src/main/assets/parakeet-tdt-0.6b-v3-int8/.gitkeep

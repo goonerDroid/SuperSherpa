@@ -2,21 +2,9 @@ package com.sublime.supersherpa.core.ai
 
 import android.content.Context
 import android.content.res.AssetManager
-import com.k2fsa.sherpa.onnx.FeatureConfig
-import com.k2fsa.sherpa.onnx.HomophoneReplacerConfig
-import com.k2fsa.sherpa.onnx.EndpointConfig
-import com.k2fsa.sherpa.onnx.OnlineCtcFstDecoderConfig
-import com.k2fsa.sherpa.onnx.OnlineLMConfig
-import com.k2fsa.sherpa.onnx.OnlineModelConfig
-import com.k2fsa.sherpa.onnx.OnlineRecognizer
-import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
-import com.k2fsa.sherpa.onnx.OnlineRecognizerResult
-import com.k2fsa.sherpa.onnx.OnlineStream
-import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.Closeable
-import java.io.IOException
 
 data class SherpaEngineError(
     val message: String,
@@ -34,6 +22,7 @@ data class SherpaModelAssets(
     val decoder: String = pathOf(decoderFileName)
     val tokens: String = pathOf(tokensFileName)
     val joiner: String? = joinerFileName?.let(::pathOf)
+
     val requiredPaths: List<String> = buildList {
         add(encoder)
         add(decoder)
@@ -42,7 +31,6 @@ data class SherpaModelAssets(
     }
 
     fun pathOf(fileName: String): String = "$rootDir/$fileName"
-
 }
 
 data class SherpaEngineConfig(
@@ -68,12 +56,15 @@ internal interface SherpaRecognizerHandle : Closeable {
 
     fun isReady(stream: SherpaStreamHandle): Boolean
 
-    fun getResult(stream: SherpaStreamHandle): OnlineRecognizerResult
+    fun getResult(stream: SherpaStreamHandle): String
 }
 
 internal interface SherpaStreamHandle : Closeable {
     fun acceptWaveform(samples: FloatArray, sampleRateHz: Int)
 }
+
+private const val RUST_PACK_PLACEHOLDER_RESULT =
+    "Rust transcription pack is not yet wired to the Android UI"
 
 class SherpaEngine(
     private val assets: SherpaModelAssets = SherpaModelAssets(),
@@ -148,11 +139,13 @@ class SherpaEngine(
                     lastError = error
                     return Result.failure(IllegalStateException(error.message))
                 }
+
                 stream != null -> {
                     val error = SherpaEngineError("SherpaEngine is already streaming.")
                     lastError = error
                     return Result.failure(IllegalStateException(error.message))
                 }
+
                 else -> recognizer
             }
         } ?: return Result.failure(IllegalStateException("SherpaEngine has not been initialized."))
@@ -240,7 +233,7 @@ class SherpaEngine(
                     return@withContext lastResultText
                 }
                 recognizerHandle.decode(currentStream)
-                recognizerHandle.getResult(currentStream).text.orEmpty()
+                recognizerHandle.getResult(currentStream)
             }
         }
 
@@ -274,16 +267,23 @@ class SherpaEngine(
             if (!shouldDecode) {
                 lastResultText
             } else {
-                (currentStream as? OfflineSherpaStreamHandle)?.finishInput()
                 withContext(dispatcher) {
                     val recognizerHandle = synchronized(lock) { recognizer }
                         ?: throw IllegalStateException("SherpaEngine has not been initialized.")
                     var text = lastResultText
                     while (recognizerHandle.isReady(currentStream)) {
                         recognizerHandle.decode(currentStream)
-                        text = recognizerHandle.getResult(currentStream).text.orEmpty()
+                        text = recognizerHandle.getResult(currentStream)
+                        if (text.isNotBlank()) {
+                            return@withContext text
+                        }
+                        break
                     }
-                    text
+                    if (text.isBlank()) {
+                        RUST_PACK_PLACEHOLDER_RESULT
+                    } else {
+                        text
+                    }
                 }
             }
         }
@@ -324,101 +324,54 @@ class SherpaEngine(
 private class AndroidSherpaRecognizerLoader(
     private val assetManager: AssetManager,
     private val assets: SherpaModelAssets,
+    @Suppress("UNUSED_PARAMETER")
     private val config: SherpaEngineConfig,
 ) : SherpaRecognizerLoader {
     override fun createRecognizer(): SherpaRecognizerHandle {
         validateAssets(assetManager, assets.requiredPaths)
-        val recognizerConfig = buildRecognizerConfig(assets, config)
-        return OfflineSherpaRecognizerHandle(
-            recognizer = OnlineRecognizer(assetManager, recognizerConfig),
-        )
+        return PlaceholderSherpaRecognizerHandle()
     }
 }
 
-private class OfflineSherpaRecognizerHandle(
-    private val recognizer: OnlineRecognizer,
-) : SherpaRecognizerHandle {
-    override fun createStream(): SherpaStreamHandle {
-        return OfflineSherpaStreamHandle(recognizer.createStream())
-    }
+private class PlaceholderSherpaRecognizerHandle : SherpaRecognizerHandle {
+    override fun createStream(): SherpaStreamHandle = PlaceholderSherpaStreamHandle()
 
     override fun decode(stream: SherpaStreamHandle) {
-        require(stream is OfflineSherpaStreamHandle) {
+        require(stream is PlaceholderSherpaStreamHandle) {
             "Stream handle was created by a different backend."
         }
-        recognizer.decode(stream.stream)
     }
 
     override fun isReady(stream: SherpaStreamHandle): Boolean {
-        require(stream is OfflineSherpaStreamHandle) {
+        require(stream is PlaceholderSherpaStreamHandle) {
             "Stream handle was created by a different backend."
         }
-        return recognizer.isReady(stream.stream)
+        return stream.sampleCount > 0
     }
 
-    override fun getResult(stream: SherpaStreamHandle): OnlineRecognizerResult {
-        require(stream is OfflineSherpaStreamHandle) {
+    override fun getResult(stream: SherpaStreamHandle): String {
+        require(stream is PlaceholderSherpaStreamHandle) {
             "Stream handle was created by a different backend."
         }
-        return recognizer.getResult(stream.stream)
+        return if (stream.sampleCount > 0) {
+            "$RUST_PACK_PLACEHOLDER_RESULT (${stream.sampleCount} samples)"
+        } else {
+            ""
+        }
     }
 
-    override fun close() {
-        recognizer.release()
-    }
+    override fun close() = Unit
 }
 
-private class OfflineSherpaStreamHandle(
-    val stream: OnlineStream,
-) : SherpaStreamHandle {
+private class PlaceholderSherpaStreamHandle : SherpaStreamHandle {
+    var sampleCount: Int = 0
+        private set
+
     override fun acceptWaveform(samples: FloatArray, sampleRateHz: Int) {
-        stream.acceptWaveform(samples, sampleRateHz)
+        sampleCount += samples.size
     }
 
-    fun finishInput() {
-        stream.inputFinished()
-    }
-
-    override fun close() {
-        stream.release()
-    }
-}
-
-private fun buildRecognizerConfig(
-    assets: SherpaModelAssets,
-    engineConfig: SherpaEngineConfig,
-): OnlineRecognizerConfig {
-    return OnlineRecognizerConfig().apply {
-        featConfig = FeatureConfig().apply {
-            sampleRate = engineConfig.sampleRateHz
-            featureDim = engineConfig.featureDim
-            dither = 0.0f
-        }
-        modelConfig = OnlineModelConfig().apply {
-            transducer = OnlineTransducerModelConfig(
-                assets.encoder,
-                assets.decoder,
-                assets.joiner.orEmpty(),
-            )
-            numThreads = engineConfig.numThreads
-            debug = false
-            provider = engineConfig.provider
-            modelType = engineConfig.modelType
-            tokens = assets.tokens
-        }
-        hr = HomophoneReplacerConfig()
-        lmConfig = OnlineLMConfig()
-        ctcFstDecoderConfig = OnlineCtcFstDecoderConfig()
-        endpointConfig = EndpointConfig()
-        enableEndpoint = true
-        decodingMethod = engineConfig.decodingMethod
-        maxActivePaths = engineConfig.maxActivePaths
-        hotwordsFile = ""
-        hotwordsScore = engineConfig.hotwordsScore
-        ruleFsts = ""
-        ruleFars = ""
-        blankPenalty = engineConfig.blankPenalty
-    }
+    override fun close() = Unit
 }
 
 private fun validateAssets(assetManager: AssetManager, requiredPaths: List<String>) {

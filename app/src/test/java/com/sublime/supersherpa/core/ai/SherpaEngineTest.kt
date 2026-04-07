@@ -1,6 +1,5 @@
 package com.sublime.supersherpa.core.ai
 
-import com.k2fsa.sherpa.onnx.OnlineRecognizerResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -92,14 +91,9 @@ private class FakeSherpaRecognizer(
         return true
     }
 
-    override fun getResult(stream: SherpaStreamHandle): OnlineRecognizerResult {
+    override fun getResult(stream: SherpaStreamHandle): String {
         require(stream is FakeSherpaStream)
-        return OnlineRecognizerResult(
-            resultText,
-            emptyArray(),
-            floatArrayOf(),
-            floatArrayOf(),
-        )
+        return resultText
     }
 
     override fun close() = Unit

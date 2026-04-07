@@ -1,0 +1,586 @@
+use std::path::PathBuf;
+use std::sync::{Arc, Condvar, Mutex};
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use jni::objects::{GlobalRef, JClass, JObject, JShortArray};
+use jni::JNIEnv;
+use once_cell::sync::Lazy;
+
+use crate::engines::parakeet::ParakeetEngine;
+use crate::TranscriptionEngine;
+
+static GLOBAL_ENGINE: Lazy<Mutex<Option<Arc<Mutex<ParakeetEngine>>>>> =
+    Lazy::new(|| Mutex::new(None));
+static GLOBAL_CONTEXT: Lazy<Mutex<Option<GlobalRef>>> = Lazy::new(|| Mutex::new(None));
+static VOICE_SESSION: Lazy<Mutex<Option<VoiceSessionState>>> = Lazy::new(|| Mutex::new(None));
+static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
+    Lazy::new(|| (Mutex::new(LoadState::Idle), Condvar::new()));
+
+#[derive(Debug, Clone, PartialEq)]
+enum LoadState {
+    Idle,
+    Loading,
+    Done,
+    Failed(String),
+}
+
+struct SendStream(#[allow(dead_code)] cpal::Stream);
+
+unsafe impl Send for SendStream {}
+unsafe impl Sync for SendStream {}
+
+struct VoiceSessionState {
+    stream: Option<SendStream>,
+    audio_buffer: Arc<Mutex<Vec<f32>>>,
+    jvm: Arc<jni::JavaVM>,
+    target_ref: GlobalRef,
+    last_level_sent: Arc<Mutex<std::time::Instant>>,
+}
+
+fn notify_status(env: &mut JNIEnv, obj: &jni::objects::JObject, msg: &str) {
+    if let Ok(jmsg) = env.new_string(msg) {
+        let _ = env.call_method(
+            obj,
+            "onStatusUpdate",
+            "(Ljava/lang/String;)V",
+            &[(&jmsg).into()],
+        );
+    }
+}
+
+fn get_engine() -> Option<Arc<Mutex<ParakeetEngine>>> {
+    GLOBAL_ENGINE.lock().unwrap().clone()
+}
+
+fn is_engine_loaded() -> bool {
+    GLOBAL_ENGINE.lock().unwrap().is_some()
+}
+
+fn ensure_loaded_from_thread(
+    jvm: &Arc<jni::JavaVM>,
+    target_ref: &GlobalRef,
+) -> Result<(), String> {
+    if is_engine_loaded() {
+        if let Ok(mut env) = jvm.attach_current_thread() {
+            notify_status(&mut env, target_ref.as_obj(), "Ready");
+        }
+        return Ok(());
+    }
+
+    let (lock, cvar) = &*LOAD_STATE;
+    let mut state = lock.lock().unwrap();
+
+    if is_engine_loaded() {
+        if let Ok(mut env) = jvm.attach_current_thread() {
+            notify_status(&mut env, target_ref.as_obj(), "Ready");
+        }
+        return Ok(());
+    }
+
+    match &*state {
+        LoadState::Loading => {
+            if let Ok(mut env) = jvm.attach_current_thread() {
+                notify_status(&mut env, target_ref.as_obj(), "Waiting for model...");
+            }
+            while *state == LoadState::Loading {
+                state = cvar.wait(state).unwrap();
+            }
+            drop(state);
+
+            if is_engine_loaded() {
+                if let Ok(mut env) = jvm.attach_current_thread() {
+                    notify_status(&mut env, target_ref.as_obj(), "Ready");
+                }
+                Ok(())
+            } else {
+                let msg = "Model failed to load".to_string();
+                if let Ok(mut env) = jvm.attach_current_thread() {
+                    notify_status(&mut env, target_ref.as_obj(), &format!("Error: {}", msg));
+                }
+                Err(msg)
+            }
+        }
+        LoadState::Done => {
+            if let Ok(mut env) = jvm.attach_current_thread() {
+                notify_status(&mut env, target_ref.as_obj(), "Ready");
+            }
+            Ok(())
+        }
+        LoadState::Idle | LoadState::Failed(_) => {
+            *state = LoadState::Loading;
+            drop(state);
+
+            let result = if let Ok(mut env) = jvm.attach_current_thread() {
+                do_load(&mut env, target_ref.as_obj())
+            } else {
+                Err("Failed to attach JNI thread".to_string())
+            };
+
+            let mut state = lock.lock().unwrap();
+            match &result {
+                Ok(()) => *state = LoadState::Done,
+                Err(msg) => *state = LoadState::Failed(msg.clone()),
+            }
+            cvar.notify_all();
+            result
+        }
+    }
+}
+
+fn do_load(env: &mut JNIEnv, context: &jni::objects::JObject) -> Result<(), String> {
+    notify_status(env, context, "Checking assets...");
+    let path = extract_assets(env, context).map_err(|e| {
+        let msg = format!("Asset error: {}", e);
+        notify_status(env, context, &format!("Error: {}", msg));
+        msg
+    })?;
+
+    notify_status(env, context, "Loading model...");
+    let mut eng = ParakeetEngine::new();
+    match eng.load_model_with_params(
+        &path,
+        crate::engines::parakeet::ParakeetModelParams::int8(),
+    ) {
+        Ok(_) => {
+            *GLOBAL_ENGINE.lock().unwrap() = Some(Arc::new(Mutex::new(eng)));
+            notify_status(env, context, "Ready");
+            Ok(())
+        }
+        Err(e) => {
+            let marker = path.join(".extraction_complete");
+            if marker.exists() {
+                let _ = std::fs::remove_file(&marker);
+            }
+            let msg = format!("Model error: {}", e);
+            notify_status(env, context, &format!("Error: {}", msg));
+            Err(msg)
+        }
+    }
+}
+
+fn extract_assets(env: &mut JNIEnv, context: &jni::objects::JObject) -> anyhow::Result<PathBuf> {
+    let files_dir_obj = env
+        .call_method(context, "getFilesDir", "()Ljava/io/File;", &[])?
+        .l()?;
+    let path_str_obj = env
+        .call_method(
+            &files_dir_obj,
+            "getAbsolutePath",
+            "()Ljava/lang/String;",
+            &[],
+        )?
+        .l()?;
+    let path_string: String = env.get_string(&path_str_obj.into())?.into();
+
+    let base_path = PathBuf::from(path_string);
+    let model_dir = base_path.join("parakeet-tdt-0.6b-v3-int8");
+    let marker_file = model_dir.join(".extraction_complete");
+    if marker_file.exists() {
+        return Ok(model_dir);
+    }
+
+    if model_dir.exists() {
+        let _ = std::fs::remove_dir_all(&model_dir);
+    }
+
+    std::fs::create_dir_all(&model_dir)?;
+
+    let asset_manager_obj = env
+        .call_method(
+            context,
+            "getAssets",
+            "()Landroid/content/res/AssetManager;",
+            &[],
+        )?
+        .l()?;
+    copy_assets_recursively(env, &asset_manager_obj, "parakeet-tdt-0.6b-v3-int8", &base_path)?;
+    std::fs::write(&marker_file, "ok")?;
+    Ok(model_dir)
+}
+
+fn copy_assets_recursively(
+    env: &mut JNIEnv,
+    asset_manager: &jni::objects::JObject,
+    path: &str,
+    target_root: &PathBuf,
+) -> anyhow::Result<()> {
+    use jni::objects::JObjectArray;
+
+    let path_jstring = env.new_string(path)?;
+    let list_array_obj = env
+        .call_method(
+            asset_manager,
+            "list",
+            "(Ljava/lang/String;)[Ljava/lang/String;",
+            &[(&path_jstring).into()],
+        )?
+        .l()?;
+
+    let list_array: JObjectArray = list_array_obj.into();
+    let len = env.get_array_length(&list_array)?;
+
+    if len == 0 {
+        return copy_asset_file(env, asset_manager, path, target_root);
+    }
+
+    let target_dir = target_root.join(path);
+    std::fs::create_dir_all(&target_dir)?;
+
+    for i in 0..len {
+        let file_name_obj = env.get_object_array_element(&list_array, i)?;
+        let file_name: String = env.get_string(&file_name_obj.into())?.into();
+        let child_path = if path.is_empty() {
+            file_name
+        } else {
+            format!("{}/{}", path, file_name)
+        };
+        copy_assets_recursively(env, asset_manager, &child_path, target_root)?;
+    }
+    Ok(())
+}
+
+fn copy_asset_file(
+    env: &mut JNIEnv,
+    asset_manager: &jni::objects::JObject,
+    asset_path: &str,
+    target_root: &PathBuf,
+) -> anyhow::Result<()> {
+    let path_jstring = env.new_string(asset_path)?;
+    let result = env.call_method(
+        asset_manager,
+        "open",
+        "(Ljava/lang/String;)Ljava/io/InputStream;",
+        &[(&path_jstring).into()],
+    );
+
+    match result {
+        Ok(stream_val) => {
+            let stream_obj = stream_val.l()?;
+            let target_file_path = target_root.join(asset_path);
+            let mut file = std::fs::File::create(&target_file_path)?;
+            let mut buffer = [0u8; 8192];
+            let buffer_j = env.new_byte_array(8192)?;
+
+            loop {
+                let bytes_read = env
+                    .call_method(&stream_obj, "read", "([B)I", &[(&buffer_j).into()])?
+                    .i()?;
+                if bytes_read == -1 {
+                    break;
+                }
+                let bytes_read_usize = bytes_read as usize;
+                let buffer_slice = unsafe {
+                    std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut i8, bytes_read_usize)
+                };
+                env.get_byte_array_region(&buffer_j, 0, buffer_slice)?;
+                use std::io::Write;
+                file.write_all(&buffer[0..bytes_read_usize])?;
+            }
+
+            env.call_method(&stream_obj, "close", "()V", &[])?;
+            Ok(())
+        }
+        Err(_) => Ok(()),
+    }
+}
+
+fn init_native(env: JNIEnv, activity: JObject) -> Result<(), String> {
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
+    let _ = ort::init().commit();
+    init_voice_session(env, activity)
+}
+
+fn transcribe_audio(
+    env: &mut JNIEnv,
+    samples_array: JShortArray,
+    length: i32,
+) -> Result<String, String> {
+    if length <= 0 {
+        return Err("No audio data to transcribe".to_string());
+    }
+
+    if get_engine().is_none() {
+        let context_ref = GLOBAL_CONTEXT
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| "Rust bridge has not been initialized.".to_string())?;
+        if !is_engine_loaded() {
+            do_load(env, context_ref.as_obj())?;
+        }
+    }
+
+    let mut buffer = vec![0i16; length as usize];
+    env.get_short_array_region(&samples_array, 0, &mut buffer)
+        .map_err(|e| e.to_string())?;
+    let samples: Vec<f32> = buffer
+        .into_iter()
+        .map(|s| s as f32 / i16::MAX as f32)
+        .collect();
+
+    let engine = get_engine().ok_or_else(|| "Model not loaded".to_string())?;
+    let result = {
+        let mut eng = engine.lock().unwrap();
+        eng.transcribe_samples(samples, None)
+            .map_err(|e| e.to_string())?
+    };
+    Ok(result.text)
+}
+
+fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
+    let vm = env.get_java_vm().map_err(|e| e.to_string())?;
+    let vm_arc = Arc::new(vm);
+    let target_ref = env.new_global_ref(&activity).map_err(|e| e.to_string())?;
+
+    let state = VoiceSessionState {
+        stream: None,
+        audio_buffer: Arc::new(Mutex::new(Vec::new())),
+        jvm: vm_arc.clone(),
+        target_ref: target_ref.clone(),
+        last_level_sent: Arc::new(Mutex::new(std::time::Instant::now())),
+    };
+
+    let vm_clone = vm_arc.clone();
+    let target_ref_clone = target_ref.clone();
+    std::thread::spawn(move || {
+        let _ = ensure_loaded_from_thread(&vm_clone, &target_ref_clone);
+    });
+
+    *GLOBAL_CONTEXT.lock().unwrap() = Some(target_ref);
+    *VOICE_SESSION.lock().unwrap() = Some(state);
+    Ok(())
+}
+
+fn notify_level(env: &mut JNIEnv, obj: &JObject, level: f32) {
+    let _ = env.call_method(obj, "onAudioLevel", "(F)V", &[level.into()]);
+}
+
+fn notify_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
+    if let Ok(jtxt) = env.new_string(text) {
+        let _ = env.call_method(
+            obj,
+            "onTextTranscribed",
+            "(Ljava/lang/String;)V",
+            &[(&jtxt).into()],
+        );
+    }
+}
+
+fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    let host = cpal::default_host();
+    let device = match host.default_input_device() {
+        Some(device) => device,
+        None => {
+            notify_status(
+                &mut env,
+                state.target_ref.as_obj(),
+                "Error: no microphone available. Check permissions.",
+            );
+            return;
+        }
+    };
+
+    let config = cpal::StreamConfig {
+        channels: 1,
+        sample_rate: cpal::SampleRate(16_000),
+        buffer_size: cpal::BufferSize::Default,
+    };
+
+    state.audio_buffer.lock().unwrap().clear();
+    let buffer_clone = state.audio_buffer.clone();
+    let jvm = state.jvm.clone();
+    let target_ref = state.target_ref.clone();
+    let last_sent = state.last_level_sent.clone();
+
+    let stream = device.build_input_stream(
+        &config,
+        move |data: &[f32], _: &_| {
+            buffer_clone.lock().unwrap().extend_from_slice(data);
+
+            let mut sum = 0.0f32;
+            for &sample in data {
+                sum += sample * sample;
+            }
+            let rms = if data.is_empty() {
+                0.0
+            } else {
+                (sum / data.len() as f32).sqrt()
+            };
+            let level = (rms * 6.0).clamp(0.0, 1.0);
+
+            let mut last = last_sent.lock().unwrap();
+            if last.elapsed() >= std::time::Duration::from_millis(50) {
+                *last = std::time::Instant::now();
+                if let Ok(mut env) = jvm.attach_current_thread() {
+                    notify_level(&mut env, target_ref.as_obj(), level);
+                }
+            }
+        },
+        |err| log::error!("Stream err: {}", err),
+        None,
+    );
+
+    match stream {
+        Ok(stream) => {
+            if stream.play().is_ok() {
+                state.stream = Some(SendStream(stream));
+                notify_status(&mut env, state.target_ref.as_obj(), "Listening...");
+            } else {
+                notify_status(
+                    &mut env,
+                    state.target_ref.as_obj(),
+                    "Error: failed to start microphone stream.",
+                );
+            }
+        }
+        Err(err) => {
+            notify_status(
+                &mut env,
+                state.target_ref.as_obj(),
+                &format!("Error: failed to open microphone: {}", err),
+            );
+        }
+    }
+}
+
+fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    state.stream = None;
+
+    let buffer = state.audio_buffer.lock().unwrap().clone();
+    if buffer.is_empty() {
+        notify_status(
+            &mut env,
+            state.target_ref.as_obj(),
+            "Error: no audio recorded. Check microphone permissions.",
+        );
+        return;
+    }
+
+    let jvm = state.jvm.clone();
+    let target_ref = state.target_ref.clone();
+    notify_status(&mut env, target_ref.as_obj(), "Transcribing...");
+
+    std::thread::spawn(move || {
+        let mut env = match jvm.attach_current_thread() {
+            Ok(env) => env,
+            Err(_) => return,
+        };
+        let obj = target_ref.as_obj();
+
+        if get_engine().is_none() {
+            if let Err(err) = GLOBAL_CONTEXT
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| "Rust bridge has not been initialized.".to_string())
+                .and_then(|context_ref| do_load(&mut env, context_ref.as_obj()))
+            {
+                notify_status(&mut env, obj, &format!("Error: {}", err));
+                return;
+            }
+        }
+
+        let engine = match get_engine() {
+            Some(engine) => engine,
+            None => {
+                notify_status(&mut env, obj, "Error: model not loaded");
+                return;
+            }
+        };
+
+        let samples = buffer;
+        let result = {
+            let mut eng = engine.lock().unwrap();
+            eng.transcribe_samples(samples, None)
+        };
+
+        match result {
+            Ok(transcription) => {
+                notify_status(&mut env, obj, "Ready");
+                notify_text(&mut env, obj, &transcription.text);
+            }
+            Err(err) => notify_status(&mut env, obj, &format!("Error: {}", err)),
+        }
+    });
+}
+
+fn voice_cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    state.stream = None;
+    state.audio_buffer.lock().unwrap().clear();
+    notify_status(&mut env, state.target_ref.as_obj(), "Canceled");
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_initNative(
+    env: JNIEnv,
+    _class: JClass,
+    activity: JObject,
+) {
+    let _ = init_native(env, activity);
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_cleanupNative(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    *GLOBAL_ENGINE.lock().unwrap() = None;
+    *VOICE_SESSION.lock().unwrap() = None;
+    *GLOBAL_CONTEXT.lock().unwrap() = None;
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_startRecording(
+    env: JNIEnv,
+    _class: JClass,
+) {
+    let mut guard = VOICE_SESSION.lock().unwrap();
+    if let Some(state) = guard.as_mut() {
+        voice_start_recording(env, state);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_stopRecording(
+    env: JNIEnv,
+    _class: JClass,
+) {
+    let mut guard = VOICE_SESSION.lock().unwrap();
+    if let Some(state) = guard.as_mut() {
+        voice_stop_recording(env, state);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_cancelRecording(
+    env: JNIEnv,
+    _class: JClass,
+) {
+    let mut guard = VOICE_SESSION.lock().unwrap();
+    if let Some(state) = guard.as_mut() {
+        voice_cancel_recording(env, state);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_transcribeAudio(
+    env: JNIEnv,
+    _class: JClass,
+    samples_array: JShortArray,
+    length: i32,
+) -> jni::sys::jstring {
+    let mut env = env;
+    let result = transcribe_audio(&mut env, samples_array, length);
+    match result {
+        Ok(text) => match env.new_string(text) {
+            Ok(jstr) => jstr.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        Err(err) => match env.new_string(format!("Error: {}", err)) {
+            Ok(jstr) => jstr.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+    }
+}
