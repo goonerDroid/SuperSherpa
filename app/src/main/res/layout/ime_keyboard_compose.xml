@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.sublime.supersherpa.core.ime.ImeComposeHostLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ime_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#2B252E"
+    android:orientation="vertical">
+
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/ime_compose_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+</com.sublime.supersherpa.core.ime.ImeComposeHostLayout>
