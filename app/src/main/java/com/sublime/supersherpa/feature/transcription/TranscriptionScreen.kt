@@ -1,7 +1,5 @@
 package com.sublime.supersherpa.feature.transcription
 
-import android.content.Intent
-import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,12 +12,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,11 +24,10 @@ private val PurpleAccent = Color(0xFF7B4A8F)
 private val LightSurface = Color(0xFFF6F3F5)
 
 @Composable
-fun TranscriptionHomeScreen(
+fun TranscriptionScreen(
+    onOpenKeyboardSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-
     Surface(
         modifier = modifier,
         color = LightSurface,
@@ -59,10 +54,7 @@ fun TranscriptionHomeScreen(
             )
 
             KeyboardInputCard(
-                onOpenSettings = {
-                    val intent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
-                    context.startActivity(intent)
-                },
+                onOpenSettings = onOpenKeyboardSettings,
             )
         }
     }

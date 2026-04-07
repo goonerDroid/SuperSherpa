@@ -1,6 +1,6 @@
 package com.sublime.supersherpa.core.rust
 
-import android.app.Activity
+import android.content.Context
 
 /**
  * Thin JNI bridge to the Rust native prototype.
@@ -13,7 +13,7 @@ class RustTranscriptionBridge {
         System.loadLibrary("transcribe_rs")
     }
 
-    external fun initNative(activity: Activity)
+    external fun initNative(context: Context)
 
     external fun cleanupNative()
 
@@ -23,5 +23,4 @@ class RustTranscriptionBridge {
 
     external fun cancelRecording()
 
-    external fun transcribeAudio(samples: ShortArray, length: Int): String
 }

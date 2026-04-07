@@ -1,6 +1,5 @@
 package com.sublime.supersherpa.core.ime
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -26,10 +24,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sublime.supersherpa.feature.transcription.VoicePhase
+import com.sublime.supersherpa.feature.transcription.VoiceState
 
 private val KeyboardBackground = Color(0xFF2B252E)
 private val CardBackground = Color(0xFFF7F4F7)
-private val Accent = Color(0xFF7B4A8F)
 private val AccentMuted = Color(0xFFD9D9D9)
 private val IconTint = Color(0xFF2196F3)
 private val TextPrimary = Color(0xFF111111)
@@ -37,8 +36,8 @@ private val TextSecondary = Color(0xFF8E8E8E)
 private val ButtonText = Color(0xFF444444)
 
 @Composable
-fun SuperSherpaImeKeyboard(
-    isRecording: Boolean,
+fun TranscriptionKeyboard(
+    voiceState: VoiceState,
     onToggleRecording: () -> Unit,
     onShowKeyboardPicker: () -> Unit,
     onCommitText: (String) -> Unit,
@@ -55,7 +54,7 @@ fun SuperSherpaImeKeyboard(
                 .padding(12.dp),
         ) {
             Text(
-                text = if (isRecording) "Listening..." else "Tap to Record",
+                text = voiceState.statusText,
                 style = MaterialTheme.typography.bodyLarge.copy(
                     color = TextPrimary,
                     fontWeight = FontWeight.Medium,
@@ -79,12 +78,16 @@ fun SuperSherpaImeKeyboard(
                 ) {
                     IconButtonKey(
                         onClick = onToggleRecording,
-                        contentDescription = if (isRecording) "Stop recording" else "Tap to record",
+                        contentDescription = when (voiceState.phase) {
+                            VoicePhase.Listening -> "Stop recording"
+                            VoicePhase.Processing -> "Transcription in progress"
+                            else -> "Tap to record"
+                        },
                         width = 64.dp,
                     ) {
                         Text(
-                            text = if (isRecording) "STOP" else "REC",
-                            color = if (isRecording) Color.White else IconTint,
+                            text = voiceState.primaryButtonLabel,
+                            color = if (voiceState.phase == VoicePhase.Listening) Color.White else IconTint,
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.Bold,
                             ),
@@ -94,7 +97,7 @@ fun SuperSherpaImeKeyboard(
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Text(
-                        text = if (isRecording) "Recording in progress" else "Tap to Record",
+                        text = voiceState.bodyText,
                         style = MaterialTheme.typography.bodyMedium.copy(
                             color = TextSecondary,
                             fontWeight = FontWeight.Normal,
@@ -164,6 +167,31 @@ fun SuperSherpaImeKeyboard(
         }
     }
 }
+
+private val VoiceState.statusText: String
+    get() = when (phase) {
+        VoicePhase.Idle -> "Tap to record"
+        VoicePhase.Listening -> "Listening..."
+        VoicePhase.Processing -> "Transcribing..."
+        VoicePhase.Result -> "Transcript ready"
+        VoicePhase.Error -> "Error: ${errorMessage.orEmpty()}"
+    }
+
+private val VoiceState.bodyText: String
+    get() = when (phase) {
+        VoicePhase.Idle -> "Tap to Record"
+        VoicePhase.Listening -> "Recording in progress"
+        VoicePhase.Processing -> "Transcription in progress"
+        VoicePhase.Result -> transcript
+        VoicePhase.Error -> errorMessage.orEmpty()
+    }
+
+private val VoiceState.primaryButtonLabel: String
+    get() = when (phase) {
+        VoicePhase.Listening -> "STOP"
+        VoicePhase.Processing -> "WAIT"
+        else -> "REC"
+    }
 
 @Composable
 private fun IconButtonKey(
