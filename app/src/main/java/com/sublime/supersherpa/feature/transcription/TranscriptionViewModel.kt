@@ -35,6 +35,12 @@ class TranscriptionViewModel : ViewModel() {
         )
     }
 
+    fun setAudioLevel(level: Float) {
+        _voiceState.value = _voiceState.value.copy(
+            audioLevel = level.coerceIn(0f, 1f),
+        )
+    }
+
     fun reset() {
         _voiceState.value = VoiceState()
     }
@@ -48,9 +54,15 @@ class TranscriptionViewModel : ViewModel() {
                     },
                 )
             }
-            message == "Listening..." -> setListening()
-            message == "Transcribing..." -> setProcessing()
-            message == "Ready" -> Unit
+            message == "Listening..." -> {
+                setListening()
+                setAudioLevel(0f)
+            }
+            message == "Transcribing..." -> {
+                setProcessing()
+                setAudioLevel(0f)
+            }
+            message == "Ready" -> setAudioLevel(0f)
             message == "Canceled" -> reset()
         }
     }

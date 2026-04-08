@@ -26,6 +26,8 @@ private val LightSurface = Color(0xFFF6F3F5)
 @Composable
 fun TranscriptionScreen(
     onOpenKeyboardSettings: () -> Unit,
+    hasMicPermission: Boolean,
+    onRequestMicPermission: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -55,6 +57,8 @@ fun TranscriptionScreen(
 
             KeyboardInputCard(
                 onOpenSettings = onOpenKeyboardSettings,
+                hasMicPermission = hasMicPermission,
+                onRequestMicPermission = onRequestMicPermission,
             )
         }
     }
@@ -63,6 +67,8 @@ fun TranscriptionScreen(
 @Composable
 private fun KeyboardInputCard(
     onOpenSettings: () -> Unit,
+    hasMicPermission: Boolean,
+    onRequestMicPermission: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -82,6 +88,21 @@ private fun KeyboardInputCard(
                 text = "Enable the keyboard to use voice input in any app.",
                 style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF6F6A72)),
             )
+
+            if (!hasMicPermission) {
+                Button(
+                    onClick = onRequestMicPermission,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2F2B31)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "GRANT MICROPHONE PERMISSION",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
 
             Button(
                 onClick = onOpenSettings,

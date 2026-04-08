@@ -42,6 +42,7 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
@@ -90,6 +91,16 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
     implementation(libs.onnxruntime.android)
+    implementation(libs.amirisback.keyboard) {
+        exclude(group = "com.google.android.gms", module = "play-services-ads")
+        exclude(group = "com.google.android.gms", module = "play-services-ads-lite")
+        exclude(group = "com.google.android.gms", module = "play-services-ads-base")
+        exclude(group = "com.google.android.gms", module = "play-services-ads-api")
+        exclude(group = "com.google.android.gms", module = "play-services-measurement-sdk-api")
+        exclude(group = "com.google.android.gms", module = "play-services-appset")
+        exclude(group = "com.google.android.gms", module = "play-services-cronet")
+        exclude(group = "com.google.android.ump", module = "user-messaging-platform")
+    }
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

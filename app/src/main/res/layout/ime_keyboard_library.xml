@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#1F1F24">
+
+    <com.frogobox.libkeyboard.ui.main.MainKeyboard
+        android:id="@+id/keyboard_main"
+        style="@style/FrogoKeyboardView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1F1F24" />
+
+    <com.frogobox.libkeyboard.ui.emoji.EmojiKeyboard
+        android:id="@+id/keyboard_emoji"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1F1F24"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+
+</FrameLayout>

@@ -12,9 +12,11 @@ class TranscriptionViewModelTest {
 
         viewModel.applyNativeStatus("Listening...")
         assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
+        assertEquals(0f, viewModel.currentState.audioLevel, 0f)
 
         viewModel.applyNativeStatus("Transcribing...")
         assertEquals(VoicePhase.Processing, viewModel.currentState.phase)
+        assertEquals(0f, viewModel.currentState.audioLevel, 0f)
 
         viewModel.applyNativeStatus("Ready")
         assertEquals(VoicePhase.Processing, viewModel.currentState.phase)
@@ -35,6 +37,17 @@ class TranscriptionViewModelTest {
         assertTrue(viewModel.applyTranscribedText(" hello world "))
         assertEquals(VoicePhase.Result, viewModel.currentState.phase)
         assertEquals("hello world", viewModel.currentState.transcript)
+    }
+
+    @Test
+    fun audioLevelIsClamped() {
+        val viewModel = TranscriptionViewModel()
+
+        viewModel.setAudioLevel(1.4f)
+        assertEquals(1f, viewModel.currentState.audioLevel, 0f)
+
+        viewModel.setAudioLevel(-0.5f)
+        assertEquals(0f, viewModel.currentState.audioLevel, 0f)
     }
 
     @Test

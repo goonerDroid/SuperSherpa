@@ -17,6 +17,7 @@ room = "2.8.4"
 lifecycleViewModelCompose = "2.10.0"
 koin = "4.2.0"
 onnxruntime = "1.22.0"
+amirisbackKeyboard = "1.2.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,6 +46,7 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
 koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
 onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntimeAndroid" }
+amirisback-keyboard = { module = "com.github.amirisback:keyboard", version.ref = "amirisbackKeyboard" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

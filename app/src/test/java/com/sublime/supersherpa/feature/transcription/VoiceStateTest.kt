@@ -23,4 +23,11 @@ class VoiceStateTest {
 
         assertEquals("missing model", state.errorMessage)
     }
+
+    @Test
+    fun audioLevelDefaultsToZero() {
+        val state = VoiceState()
+
+        assertEquals(0f, state.audioLevel, 0f)
+    }
 }

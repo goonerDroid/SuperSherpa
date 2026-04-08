@@ -10,6 +10,7 @@ data class VoiceState(
     val phase: VoicePhase = VoicePhase.Idle,
     val transcript: String = "",
     val errorMessage: String? = null,
+    val audioLevel: Float = 0f,
 ) {
     val isActive: Boolean
         get() = phase == VoicePhase.Listening || phase == VoicePhase.Processing
