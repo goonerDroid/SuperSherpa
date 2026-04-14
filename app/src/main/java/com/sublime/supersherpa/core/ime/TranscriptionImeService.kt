@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import androidx.annotation.Keep
 import com.frogobox.libkeyboard.common.core.BaseKeyboardIME
 import com.sublime.supersherpa.R
@@ -36,7 +37,6 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     }
 
     override fun onDestroy() {
-        bridge.cleanupNative()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -58,6 +58,11 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
             onVoiceBarActionPressed()
         }
         renderVoiceBar()
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        bridge.initNative(this)
+        super.onStartInputView(info, restarting)
     }
 
     override fun initBackToMainKeyboard() {
