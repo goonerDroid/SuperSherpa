@@ -46,6 +46,7 @@ import com.sublime.supersherpa.ui.animation.animatedScreenTransition
 import androidx.compose.material3.MaterialTheme
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 @OptIn(ExperimentalAnimationApi::class)
 class MainActivity : ComponentActivity() {
@@ -89,7 +90,7 @@ class MainActivity : ComponentActivity() {
             ) { granted ->
                 hasMicPermission = granted
                 hasRequestedMicPermission = true
-                permissionPrefs.edit().putBoolean(MIC_PERMISSION_REQUESTED_PREF, true).apply()
+                permissionPrefs.edit { putBoolean(MIC_PERMISSION_REQUESTED_PREF, true) }
             }
 
             val canRequestMicPermission =
@@ -104,7 +105,7 @@ class MainActivity : ComponentActivity() {
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
                 if (hasMicPermission) {
                     hasRequestedMicPermission = true
-                    permissionPrefs.edit().putBoolean(MIC_PERMISSION_REQUESTED_PREF, true).apply()
+                    permissionPrefs.edit { putBoolean(MIC_PERMISSION_REQUESTED_PREF, true) }
                 }
                 isKeyboardAccessReady = isKeyboardAccessReady()
             }
@@ -126,7 +127,7 @@ class MainActivity : ComponentActivity() {
                         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
                         if (hasMicPermission) {
                             hasRequestedMicPermission = true
-                            permissionPrefs.edit().putBoolean(MIC_PERMISSION_REQUESTED_PREF, true).apply()
+                            permissionPrefs.edit { putBoolean(MIC_PERMISSION_REQUESTED_PREF, true) }
                         }
                         isKeyboardAccessReady = isKeyboardAccessReady()
                     }
@@ -171,7 +172,12 @@ class MainActivity : ComponentActivity() {
                                 if (!hasMicPermission) {
                                     if (canRequestMicPermission) {
                                         hasRequestedMicPermission = true
-                                        permissionPrefs.edit().putBoolean(MIC_PERMISSION_REQUESTED_PREF, true).apply()
+                                        permissionPrefs.edit {
+                                            putBoolean(
+                                                MIC_PERMISSION_REQUESTED_PREF,
+                                                true
+                                            )
+                                        }
                                         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         openAppSettings()
