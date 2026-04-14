@@ -1,164 +1,87 @@
 # SuperSherpa
 
-SuperSherpa is a fully offline Android speech transcription app built with Kotlin, Jetpack Compose, and a Rust backend.
+SuperSherpa is an Android offline speech-to-text app built with Kotlin, Jetpack Compose, and a Rust native transcription core.
 
-It is designed for fast, private, on-device transcription with a modern mobile UI and a lightweight architecture that keeps inference separate from the Android frontend.
+## Current App State
 
-## What It Does
+Implemented now:
 
-SuperSherpa provides:
+- Offline transcription pipeline via JNI into `transcribe-rs`
+- Recorder screen with live voice phases (`Idle`, `Listening`, `Processing`, `Result`, `Error`)
+- Copy-to-clipboard from the recorder and history screens
+- Local transcript history persisted with Room
+- Settings screen for microphone permission + IME setup
+- Custom IME (`TranscriptionImeService`) with voice bar start/stop/paste flow
+- Material 3 Compose UI with screen transitions
 
-- floating mic transcription
-- real-time speech-to-text
-- clipboard copy support
-- fully offline operation
-- local-only audio processing
-- a Compose-first Android experience
+Not implemented yet:
 
-## Why This Approach
+- Floating overlay service (`VoiceOverlayService`) is still planned and not active in the current app build
 
-SuperSherpa uses a Kotlin + Compose Android client and a Rust transcription backend.
+## Architecture Snapshot
 
-This gives the app:
+- Android app: Kotlin, Compose, MVVM-style presentation state
+- Native layer: Rust (`transcribe-rs`) loaded as `libtranscribe_rs.so`
+- Native bridge: `RustTranscriptionBridge`
+- Persistence: Room (`TranscriptHistoryRepository`)
 
-- a modern Android UI stack
-- clean separation between UI and inference
-- strong performance for audio and model handling
-- the ability to use the latest Parakeet models locally
-- a backend that can evolve independently of the Android app
+Pipeline today:
 
-## Tech Stack
+`Mic -> Rust native recording/inference -> status + transcript callbacks -> ViewModel state -> Compose UI`
 
-- Kotlin
-- Jetpack Compose
-- Material 3
-- Navigation Compose
-- ViewModel
-- StateFlow
-- Coroutines
-- DataStore
-- Room
-- Rust backend for transcription
-- JNI bridge between Kotlin and Rust
+## Screenshots
 
-## Architecture
+### Light Theme
 
-The app follows a modern Android architecture:
+![Recorder (Light)](screenshots/light/recorder.png)
+![History (Light)](screenshots/light/history.png)
+![Settings (Light)](screenshots/light/settings.png)
+![Keyboard (Light)](screenshots/light/keyboard_light.png)
+![Keyboard Output (Light)](screenshots/light/keyboard_light_output.png)
 
-- Compose for UI
-- ViewModel for screen state
-- StateFlow for observable state
-- repositories for data and native access
-- background work on coroutines
-- Rust for audio inference and transcription
+### Dark Theme
 
-Pipeline:
-
-`Mic -> AudioRecord -> Rust backend -> Parakeet model -> Transcription -> UI`
-
-## MVP Goals
-
-The initial release focuses on:
-
-- floating mic overlay
-- on-device speech-to-text
-- real-time transcription
-- copy to clipboard
-- offline-first operation
-- clean and responsive Compose UI
-- native backend integration through Rust
-
-## Voice State
-
-The shared UI state model is centered around `VoiceState`:
-
-- `Idle`
-- `Listening`
-- `Processing`
-- `Result(text)`
-- `Error(message)`
-
-## Project Structure
-
-Planned code areas:
-
-- `app/src/main/java/com/sublime/supersherpa/core/audio/`
-- `app/src/main/java/com/sublime/supersherpa/core/ai/`
-- `app/src/main/java/com/sublime/supersherpa/core/overlay/`
-- `app/src/main/java/com/sublime/supersherpa/core/permissions/`
-- `app/src/main/java/com/sublime/supersherpa/feature/transcription/`
-- `app/src/main/java/com/sublime/supersherpa/ui/floating/`
-- `app/src/main/java/com/sublime/supersherpa/model/`
-- `rust/` or `native/` for the Rust backend
-
-## Rust Backend
-
-The Rust layer handles:
-
-- Parakeet model loading
-- transcription inference
-- streaming and batch transcription logic
-- audio pipeline behavior
-- JNI callbacks back into Kotlin
-
-The goal is to keep the transcription engine small, fast, and independent from UI concerns.
-
-## Model Setup
-
-SuperSherpa is intended to use the latest Parakeet models locally.
-
-Expected model assets live under:
-
-- `app/src/main/assets/models/encoder.onnx`
-- `app/src/main/assets/models/decoder.onnx`
-- `app/src/main/assets/models/tokens.txt`
-
-Depending on packaging strategy, these may also be delivered through local download or asset caching.
+![Recorder (Dark)](screenshots/dark/recorder.png)
+![History (Dark)](screenshots/dark/history.png)
+![Settings (Dark)](screenshots/dark/settings.png)
+![Keyboard (Dark)](screenshots/dark/keyboard_dark.png)
+![Keyboard Output (Dark)](screenshots/dark/keyboard_dark_output.png)
 
 ## Permissions
 
-The transcription and overlay flow uses:
+Declared in `AndroidManifest.xml`:
 
 - `android.permission.RECORD_AUDIO`
 - `android.permission.FOREGROUND_SERVICE`
+- `android.permission.FOREGROUND_SERVICE_MICROPHONE`
 - `android.permission.SYSTEM_ALERT_WINDOW`
-- `android.permission.POST_NOTIFICATIONS`
 
 ## Build
-
-From the project root:
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-## Test
-
-Run unit tests:
+## Tests
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
-Run instrumentation tests:
-
 ```bash
 ./gradlew connectedDebugAndroidTest
 ```
-
-Run lint:
 
 ```bash
 ./gradlew lintDebug
 ```
 
-## Notes
+## Project Layout (Current)
 
-- Audio capture should run on `Dispatchers.IO`.
-- Inference should run off the main thread.
-- UI state should be owned by `ViewModel`.
-- Overlay behavior must respect Android background limits.
-- The app should remain fully offline and avoid cloud dependencies.
+- `app/` Android client (Compose UI, ViewModel, Room, IME service)
+- `transcribe-rs/` Rust transcription core + Android bridge
+- `model_assets/` large model asset pack module
+- `screenshots/` README screenshots (light + dark)
 
 ## License
 
