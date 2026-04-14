@@ -33,19 +33,23 @@ Pipeline today:
 
 ### Light Theme
 
-![Recorder (Light)](screenshots/light/recorder.png)
-![History (Light)](screenshots/light/history.png)
-![Settings (Light)](screenshots/light/settings.png)
-![Keyboard (Light)](screenshots/light/keyboard_light.png)
-![Keyboard Output (Light)](screenshots/light/keyboard_light_output.png)
+<p>
+  <img src="screenshots/light/recorder.png" alt="Recorder (Light)" width="19%" />
+  <img src="screenshots/light/history.png" alt="History (Light)" width="19%" />
+  <img src="screenshots/light/settings.png" alt="Settings (Light)" width="19%" />
+  <img src="screenshots/light/keyboard_light.png" alt="Keyboard (Light)" width="19%" />
+  <img src="screenshots/light/keyboard_light_output.png" alt="Keyboard Output (Light)" width="19%" />
+</p>
 
 ### Dark Theme
 
-![Recorder (Dark)](screenshots/dark/recorder.png)
-![History (Dark)](screenshots/dark/history.png)
-![Settings (Dark)](screenshots/dark/settings.png)
-![Keyboard (Dark)](screenshots/dark/keyboard_dark.png)
-![Keyboard Output (Dark)](screenshots/dark/keyboard_dark_output.png)
+<p>
+  <img src="screenshots/dark/recorder.png" alt="Recorder (Dark)" width="19%" />
+  <img src="screenshots/dark/history.png" alt="History (Dark)" width="19%" />
+  <img src="screenshots/dark/settings.png" alt="Settings (Dark)" width="19%" />
+  <img src="screenshots/dark/keyboard_dark.png" alt="Keyboard (Dark)" width="19%" />
+  <img src="screenshots/dark/keyboard_dark_output.png" alt="Keyboard Output (Dark)" width="19%" />
+</p>
 
 ## Permissions
 
