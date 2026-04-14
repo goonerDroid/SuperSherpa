@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    modifier: Modifier = Modifier,
     isKeyboardReady: Boolean,
     hasMicPermission: Boolean,
     canRequestMicPermission: Boolean,
@@ -46,7 +47,6 @@ fun SettingsScreen(
     onOpenKeyboardSettings: () -> Unit,
     onRequestMicPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -174,6 +174,7 @@ private fun SettingsOverviewCard(
 
 @Composable
 private fun AccessCard(
+    modifier: Modifier = Modifier,
     title: String,
     description: String,
     enabled: Boolean,
@@ -181,7 +182,6 @@ private fun AccessCard(
     actionLabel: String,
     onAction: () -> Unit,
     actionEnabled: Boolean = true,
-    modifier: Modifier = Modifier,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
