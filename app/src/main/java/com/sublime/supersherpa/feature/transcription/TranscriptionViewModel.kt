@@ -105,17 +105,17 @@ class TranscriptionViewModel : ViewModel() {
     }
 
     suspend fun applyTranscribedText(text: String): Boolean {
-        if (currentState.phase != VoicePhase.Processing) {
-            return false
-        }
-
         val cleanedText = text.trim()
         return if (cleanedText.isBlank()) {
             reset()
             false
         } else {
-            historyRepository?.addTranscript(cleanedText)
             setResult(cleanedText)
+            try {
+                historyRepository?.addTranscript(cleanedText)
+            } catch (_: Throwable) {
+                // Keep the live transcript visible even if history persistence fails.
+            }
             true
         }
     }

@@ -1,9 +1,9 @@
 package com.sublime.supersherpa.feature.transcription
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 class TranscriptionViewModelTest {
     @Test
@@ -26,17 +26,17 @@ class TranscriptionViewModelTest {
     }
 
     @Test
-    fun transcriptTextIsCapturedOnlyWhileProcessing() {
-        val viewModel = TranscriptionViewModel()
+    fun transcriptTextIsCapturedAndShownWhenNativeTextArrives() {
+        runBlocking {
+            val viewModel = TranscriptionViewModel()
 
-        assertFalse(viewModel.applyTranscribedText("hello world"))
-        assertEquals(VoicePhase.Idle, viewModel.currentState.phase)
+            viewModel.setProcessing()
+            viewModel.applyNativeStatus("Ready")
 
-        viewModel.setProcessing()
-
-        assertTrue(viewModel.applyTranscribedText(" hello world "))
-        assertEquals(VoicePhase.Result, viewModel.currentState.phase)
-        assertEquals("hello world", viewModel.currentState.transcript)
+            assertTrue(viewModel.applyTranscribedText(" hello world "))
+            assertEquals(VoicePhase.Result, viewModel.currentState.phase)
+            assertEquals("hello world", viewModel.currentState.transcript)
+        }
     }
 
     @Test

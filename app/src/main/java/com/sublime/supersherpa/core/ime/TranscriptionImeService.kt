@@ -7,12 +7,25 @@ import android.view.View
 import androidx.annotation.Keep
 import com.frogobox.libkeyboard.common.core.BaseKeyboardIME
 import com.sublime.supersherpa.R
+import com.sublime.supersherpa.core.history.local.SuperSherpaDatabase
 import com.sublime.supersherpa.core.rust.RustTranscriptionBridge
 import com.sublime.supersherpa.databinding.ImeKeyboardLibraryBinding
+import com.sublime.supersherpa.feature.transcription.TranscriptHistoryRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bridge by lazy { RustTranscriptionBridge() }
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val historyRepository by lazy {
+        TranscriptHistoryRepository(
+            dao = SuperSherpaDatabase.getInstance(this).transcriptHistoryDao(),
+        )
+    }
 
     private var voiceBarPhase = VoiceBarPhase.Idle
     private var latestTranscript = ""
@@ -25,6 +38,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
 
     override fun onDestroy() {
         bridge.cleanupNative()
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -104,8 +118,12 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
                     voiceBarPhase = VoiceBarPhase.Processing
                 }
                 "Ready" -> {
-                    if (voiceBarPhase != VoiceBarPhase.Processing) {
-                        voiceBarPhase = VoiceBarPhase.Idle
+                    if (voiceBarPhase == VoiceBarPhase.Processing) {
+                        voiceBarPhase = if (latestTranscript.isBlank()) {
+                            VoiceBarPhase.Idle
+                        } else {
+                            VoiceBarPhase.Result
+                        }
                     }
                 }
                 "Canceled" -> {
@@ -143,6 +161,10 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
                 isAwaitingCommit = false
                 renderVoiceBar()
                 return@post
+            }
+
+            serviceScope.launch {
+                historyRepository.addTranscript(cleaned)
             }
 
             if (isAwaitingCommit) {
