@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <style name="Theme.SuperSherpa" parent="android:Theme.Material.Light.NoActionBar">
-    <item name="android:windowBackground">@color/ime_surface</item>
-    <item name="android:colorBackground">@color/ime_surface</item>
+    <item name="android:windowBackground">@color/brand_surface</item>
+    <item name="android:colorBackground">@color/brand_surface</item>
   </style>
 </resources>
