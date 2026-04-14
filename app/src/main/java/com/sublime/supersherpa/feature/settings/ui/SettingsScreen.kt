@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.feature.settings
+package com.sublime.supersherpa.feature.settings.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box

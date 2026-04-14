@@ -1,12 +1,13 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.data
 
-import com.sublime.supersherpa.core.history.local.TranscriptHistoryDao
-import com.sublime.supersherpa.core.history.local.TranscriptHistoryEntity
-import com.sublime.supersherpa.model.TranscriptionHistoryItem
+import com.sublime.supersherpa.feature.transcription.data.local.TranscriptHistoryDao
+import com.sublime.supersherpa.feature.transcription.data.local.TranscriptHistoryEntity
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptHistoryStore
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class TranscriptHistoryRepository(

@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.domain
 
 internal sealed interface NativeTranscriptionMessage {
     data object Listening : NativeTranscriptionMessage

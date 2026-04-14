@@ -7,7 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import com.sublime.supersherpa.feature.transcription.AppScreen
+import com.sublime.supersherpa.feature.transcription.presentation.AppScreen
 
 private const val SCREEN_TWEEN_MS = 180
 private const val SCREEN_STAGGER_RATIO = 6

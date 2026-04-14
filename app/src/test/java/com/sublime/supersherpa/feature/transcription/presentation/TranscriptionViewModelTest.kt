@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.presentation
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

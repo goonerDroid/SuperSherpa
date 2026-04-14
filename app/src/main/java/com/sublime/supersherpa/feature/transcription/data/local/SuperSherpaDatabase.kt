@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.core.history.local
+package com.sublime.supersherpa.feature.transcription.data.local
 
 import android.content.Context
 import androidx.room.Database

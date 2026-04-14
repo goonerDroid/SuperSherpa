@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.ui
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -46,8 +46,8 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +56,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import com.sublime.supersherpa.feature.transcription.presentation.VoicePhase
+import com.sublime.supersherpa.feature.transcription.presentation.VoiceState
+import com.sublime.supersherpa.feature.transcription.presentation.errorMessage
+import com.sublime.supersherpa.feature.transcription.presentation.phase
+import com.sublime.supersherpa.feature.transcription.presentation.transcript
 import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.pow

@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
@@ -46,7 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.sublime.supersherpa.model.TranscriptionHistoryItem
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
 import java.text.DateFormat
 import java.util.Date
 

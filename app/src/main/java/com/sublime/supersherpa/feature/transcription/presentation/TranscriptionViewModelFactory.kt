@@ -1,7 +1,8 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptHistoryStore
 
 class TranscriptionViewModelFactory(
     private val historyStore: TranscriptHistoryStore,

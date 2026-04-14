@@ -1,4 +1,4 @@
-package com.sublime.supersherpa
+package com.sublime.supersherpa.app
 
 import android.app.Application
 import androidx.emoji2.bundled.BundledEmojiCompatConfig

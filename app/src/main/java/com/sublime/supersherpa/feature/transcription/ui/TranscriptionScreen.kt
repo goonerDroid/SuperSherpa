@@ -1,11 +1,13 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.ui
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.sublime.supersherpa.feature.settings.SettingsScreen
-import com.sublime.supersherpa.model.TranscriptionHistoryItem
+import com.sublime.supersherpa.feature.settings.ui.SettingsScreen
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
+import com.sublime.supersherpa.feature.transcription.presentation.AppScreen
+import com.sublime.supersherpa.feature.transcription.presentation.VoiceState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

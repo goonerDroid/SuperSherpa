@@ -1,4 +1,4 @@
-package com.sublime.supersherpa.model
+package com.sublime.supersherpa.feature.transcription.domain
 
 import androidx.compose.runtime.Immutable
 

@@ -1,6 +1,5 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.domain
 
-import com.sublime.supersherpa.model.TranscriptionHistoryItem
 import kotlinx.coroutines.flow.Flow
 
 interface TranscriptHistoryStore {

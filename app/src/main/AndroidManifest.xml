@@ -8,7 +8,7 @@
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
   <application
-    android:name=".SuperSherpaApp"
+    android:name=".app.SuperSherpaApp"
     android:allowBackup="true"
     android:dataExtractionRules="@xml/data_extraction_rules"
     android:fullBackupContent="@xml/backup_rules"
@@ -20,7 +20,7 @@
 
     <activity
       android:exported="true"
-      android:name=".MainActivity"
+      android:name=".app.MainActivity"
       android:theme="@style/Theme.SuperSherpa">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />

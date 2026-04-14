@@ -1,7 +1,7 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.data
 
-import com.sublime.supersherpa.core.history.local.TranscriptHistoryDao
-import com.sublime.supersherpa.core.history.local.TranscriptHistoryEntity
+import com.sublime.supersherpa.feature.transcription.data.local.TranscriptHistoryDao
+import com.sublime.supersherpa.feature.transcription.data.local.TranscriptHistoryEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first

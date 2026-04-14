@@ -1,8 +1,11 @@
-package com.sublime.supersherpa.feature.transcription
+package com.sublime.supersherpa.feature.transcription.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sublime.supersherpa.model.TranscriptionHistoryItem
+import com.sublime.supersherpa.feature.transcription.domain.NativeTranscriptionMessage
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptHistoryStore
+import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
+import com.sublime.supersherpa.feature.transcription.domain.parseNativeTranscriptionMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,9 +24,9 @@ class TranscriptionViewModel(
         get() = _voiceState.value
 
     init {
-        historyStore?.let { repository ->
+        historyStore?.let { store ->
             viewModelScope.launch {
-                repository.observeHistory().collect { items ->
+                store.observeHistory().collect { items ->
                     _history.value = items
                 }
             }

@@ -1,4 +1,4 @@
-package com.sublime.supersherpa
+package com.sublime.supersherpa.app
 
 import android.Manifest
 import android.content.Intent
@@ -37,11 +37,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sublime.supersherpa.core.clipboard.AndroidTranscriptClipboard
 import com.sublime.supersherpa.core.rust.RustTranscriptionBridge
-import com.sublime.supersherpa.feature.transcription.AppScreen
-import com.sublime.supersherpa.feature.transcription.TranscriptionViewModelFactory
-import com.sublime.supersherpa.feature.transcription.TranscriptionScreen
-import com.sublime.supersherpa.feature.transcription.TranscriptionViewModel
-import com.sublime.supersherpa.feature.transcription.VoiceState
+import com.sublime.supersherpa.feature.transcription.presentation.AppScreen
+import com.sublime.supersherpa.feature.transcription.presentation.TranscriptionViewModel
+import com.sublime.supersherpa.feature.transcription.presentation.TranscriptionViewModelFactory
+import com.sublime.supersherpa.feature.transcription.presentation.VoiceState
+import com.sublime.supersherpa.feature.transcription.ui.TranscriptionScreen
 import com.sublime.supersherpa.ui.animation.animatedScreenTransition
 import androidx.compose.material3.MaterialTheme
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme

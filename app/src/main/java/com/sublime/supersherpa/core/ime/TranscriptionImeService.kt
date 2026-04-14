@@ -8,11 +8,11 @@ import android.view.inputmethod.EditorInfo
 import androidx.annotation.Keep
 import com.frogobox.libkeyboard.common.core.BaseKeyboardIME
 import com.sublime.supersherpa.R
-import com.sublime.supersherpa.SuperSherpaApp
+import com.sublime.supersherpa.app.SuperSherpaApp
 import com.sublime.supersherpa.core.rust.RustTranscriptionBridge
 import com.sublime.supersherpa.databinding.ImeKeyboardLibraryBinding
-import com.sublime.supersherpa.feature.transcription.NativeTranscriptionMessage
-import com.sublime.supersherpa.feature.transcription.parseNativeTranscriptionMessage
+import com.sublime.supersherpa.feature.transcription.domain.NativeTranscriptionMessage
+import com.sublime.supersherpa.feature.transcription.domain.parseNativeTranscriptionMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
