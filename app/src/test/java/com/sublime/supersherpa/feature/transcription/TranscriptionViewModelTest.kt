@@ -43,11 +43,14 @@ class TranscriptionViewModelTest {
     fun audioLevelIsClamped() {
         val viewModel = TranscriptionViewModel()
 
+        viewModel.setListening()
         viewModel.setAudioLevel(1.4f)
         assertEquals(1f, viewModel.currentState.audioLevel, 0f)
+        assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
 
         viewModel.setAudioLevel(-0.5f)
         assertEquals(0f, viewModel.currentState.audioLevel, 0f)
+        assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
     }
 
     @Test

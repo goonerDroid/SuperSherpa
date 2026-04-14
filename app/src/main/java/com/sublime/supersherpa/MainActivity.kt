@@ -37,11 +37,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sublime.supersherpa.core.clipboard.AndroidTranscriptClipboard
 import com.sublime.supersherpa.core.rust.RustTranscriptionBridge
-import com.sublime.supersherpa.feature.transcription.TranscriptionViewModelFactory
 import com.sublime.supersherpa.feature.transcription.AppScreen
+import com.sublime.supersherpa.feature.transcription.TranscriptionViewModelFactory
 import com.sublime.supersherpa.feature.transcription.TranscriptionScreen
 import com.sublime.supersherpa.feature.transcription.TranscriptionViewModel
-import com.sublime.supersherpa.feature.transcription.VoicePhase
+import com.sublime.supersherpa.feature.transcription.VoiceState
 import com.sublime.supersherpa.ui.animation.animatedScreenTransition
 import androidx.compose.material3.MaterialTheme
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme
@@ -186,19 +186,19 @@ class MainActivity : ComponentActivity() {
                                         openAppSettings()
                                     }
                                 } else {
-                                    when (voiceState.phase) {
-                                        VoicePhase.Idle,
-                                        VoicePhase.Result,
-                                        VoicePhase.Error,
+                                    when (voiceState) {
+                                        VoiceState.Idle,
+                                        is VoiceState.Result,
+                                        is VoiceState.Error,
                                         -> {
                                             transcriptionViewModel.setListening()
                                             bridge.startRecording()
                                         }
-                                        VoicePhase.Listening -> {
+                                        is VoiceState.Listening -> {
                                             transcriptionViewModel.setProcessing()
                                             bridge.stopRecording()
                                         }
-                                        VoicePhase.Processing -> {
+                                        is VoiceState.Processing -> {
                                             bridge.cancelRecording()
                                             transcriptionViewModel.reset()
                                         }
@@ -216,6 +216,9 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = destination
                             },
                             onCopyText = copyText,
+                            onDeleteHistoryItems = { ids ->
+                                transcriptionViewModel.deleteHistoryItems(ids)
+                            },
                         )
                     }
                 }

@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 class TranscriptionViewModel(
     private val historyStore: TranscriptHistoryStore? = null,
 ) : ViewModel() {
-    private val _voiceState = MutableStateFlow(VoiceState())
+    private val _voiceState = MutableStateFlow<VoiceState>(VoiceState.Idle)
     private val _history = MutableStateFlow<List<TranscriptionHistoryItem>>(emptyList())
 
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
@@ -31,54 +31,27 @@ class TranscriptionViewModel(
     }
 
     fun setListening() {
-        _voiceState.value = _voiceState.value.copy(
-            phase = VoicePhase.Listening,
-            transcript = "",
-            errorMessage = null,
-            audioLevel = 0f,
-        )
+        _voiceState.value = VoiceState.Listening()
     }
 
     fun setProcessing() {
-        _voiceState.value = _voiceState.value.copy(
-            phase = VoicePhase.Processing,
-            transcript = "",
-            errorMessage = null,
-            audioLevel = 0f,
-        )
+        _voiceState.value = VoiceState.Processing()
     }
 
     fun setResult(text: String) {
-        _voiceState.value = _voiceState.value.copy(
-            phase = VoicePhase.Result,
-            transcript = text,
-            errorMessage = null,
-            audioLevel = 0f,
-        )
+        _voiceState.value = VoiceState.Result(transcript = text)
     }
 
     fun setError(message: String) {
-        _voiceState.value = _voiceState.value.copy(
-            phase = VoicePhase.Error,
-            errorMessage = message,
-            transcript = "",
-            audioLevel = 0f,
-        )
+        _voiceState.value = VoiceState.Error(errorMessage = message)
     }
 
     fun setAudioLevel(level: Float) {
-        _voiceState.value = _voiceState.value.copy(
-            audioLevel = level.coerceIn(0f, 1f),
-        )
+        _voiceState.value = _voiceState.value.withAudioLevel(level.coerceIn(0f, 1f))
     }
 
     fun reset() {
-        _voiceState.value = _voiceState.value.copy(
-            phase = VoicePhase.Idle,
-            transcript = "",
-            errorMessage = null,
-            audioLevel = 0f,
-        )
+        _voiceState.value = VoiceState.Idle
     }
 
     fun applyNativeStatus(message: String) {
@@ -115,6 +88,19 @@ class TranscriptionViewModel(
                 // Keep the live transcript visible even if history persistence fails.
             }
             true
+        }
+    }
+
+    fun deleteHistoryItems(ids: Collection<Long>) {
+        val transcriptIds = ids.toSet()
+        if (transcriptIds.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                historyStore?.deleteTranscripts(transcriptIds)
+            } catch (_: Throwable) {
+                // History deletion is best-effort; the list will refresh from the source of truth.
+            }
         }
     }
 }

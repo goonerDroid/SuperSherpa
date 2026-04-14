@@ -14,6 +14,9 @@ interface TranscriptHistoryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entry: TranscriptHistoryEntity)
 
+    @Query("DELETE FROM transcript_history WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query(
         """
         DELETE FROM transcript_history

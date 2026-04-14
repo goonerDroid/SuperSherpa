@@ -47,16 +47,31 @@ class TranscriptHistoryRepositoryTest {
         assertEquals(1234L, items.single().createdAtEpochMillis)
     }
 
+    @Test
+    fun deleteTranscriptsForwardsIdsToDao() = runBlocking {
+        val dao = FakeTranscriptHistoryDao()
+        val repository = TranscriptHistoryRepository(dao)
+
+        repository.deleteTranscripts(listOf(2L, 9L))
+
+        assertEquals(listOf(listOf(2L, 9L)), dao.deletedIds)
+    }
+
     private class FakeTranscriptHistoryDao(
         private val historyFlow: Flow<List<TranscriptHistoryEntity>> = flowOf(emptyList()),
     ) : TranscriptHistoryDao {
         val insertedEntries = mutableListOf<TranscriptHistoryEntity>()
         val trimLimits = mutableListOf<Int>()
+        val deletedIds = mutableListOf<List<Long>>()
 
         override fun observeHistory(): Flow<List<TranscriptHistoryEntity>> = historyFlow
 
         override suspend fun insert(entry: TranscriptHistoryEntity) {
             insertedEntries += entry
+        }
+
+        override suspend fun deleteByIds(ids: List<Long>) {
+            deletedIds += ids
         }
 
         override suspend fun trimToLimit(limit: Int) {

@@ -6,6 +6,7 @@ import com.sublime.supersherpa.model.TranscriptionHistoryItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
 class TranscriptHistoryRepository(
@@ -20,7 +21,7 @@ class TranscriptHistoryRepository(
                     createdAtEpochMillis = entity.createdAtEpochMillis,
                 )
             }
-        }
+        }.distinctUntilChanged()
     }
 
     override suspend fun addTranscript(text: String) {
@@ -32,6 +33,15 @@ class TranscriptHistoryRepository(
                 ),
             )
             dao.trimToLimit(MAX_HISTORY_SIZE)
+        }
+    }
+
+    override suspend fun deleteTranscripts(ids: Collection<Long>) {
+        val transcriptIds = ids.toList()
+        if (transcriptIds.isEmpty()) return
+
+        withContext(Dispatchers.IO) {
+            dao.deleteByIds(transcriptIds)
         }
     }
 
