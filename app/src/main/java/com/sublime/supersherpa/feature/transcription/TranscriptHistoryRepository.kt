@@ -10,8 +10,8 @@ import kotlinx.coroutines.withContext
 
 class TranscriptHistoryRepository(
     private val dao: TranscriptHistoryDao,
-) {
-    fun observeHistory(): Flow<List<TranscriptionHistoryItem>> {
+) : TranscriptHistoryStore {
+    override fun observeHistory(): Flow<List<TranscriptionHistoryItem>> {
         return dao.observeHistory().map { entities ->
             entities.map { entity ->
                 TranscriptionHistoryItem(
@@ -23,7 +23,7 @@ class TranscriptHistoryRepository(
         }
     }
 
-    suspend fun addTranscript(text: String) {
+    override suspend fun addTranscript(text: String) {
         withContext(Dispatchers.IO) {
             dao.insert(
                 TranscriptHistoryEntity(

@@ -76,6 +76,7 @@ import kotlin.math.sin
 fun TranscriptionScreen(
     screen: AppScreen,
     voiceState: VoiceState,
+    history: List<TranscriptionHistoryItem>,
     hasMicPermission: Boolean,
     canRequestMicPermission: Boolean,
     isKeyboardReady: Boolean,
@@ -86,10 +87,13 @@ fun TranscriptionScreen(
     onNavigate: (AppScreen) -> Unit,
     onCopyText: (String) -> Unit,
     modifier: Modifier = Modifier,
-) {
+    ) {
     when (screen) {
         AppScreen.Recorder -> RecorderScreen(
-            voiceState = voiceState,
+            phase = voiceState.phase,
+            transcript = voiceState.transcript,
+            errorMessage = voiceState.errorMessage,
+            audioLevel = voiceState.audioLevel,
             hasMicPermission = hasMicPermission,
             canRequestMicPermission = canRequestMicPermission,
             onRequestMicPermission = onRequestMicPermission,
@@ -101,7 +105,7 @@ fun TranscriptionScreen(
             modifier = modifier.fillMaxSize(),
         )
         AppScreen.History -> HistoryScreen(
-            history = voiceState.history,
+            history = history,
             onClose = { onNavigate(AppScreen.Recorder) },
             onCopyText = onCopyText,
             modifier = modifier.fillMaxSize(),
@@ -122,7 +126,10 @@ fun TranscriptionScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RecorderScreen(
-    voiceState: VoiceState,
+    phase: VoicePhase,
+    transcript: String,
+    errorMessage: String?,
+    audioLevel: Float,
     hasMicPermission: Boolean,
     canRequestMicPermission: Boolean,
     onRequestMicPermission: () -> Unit,
@@ -163,7 +170,7 @@ private fun RecorderScreen(
         },
         floatingActionButton = {
             RecorderFab(
-                voiceState = voiceState,
+                phase = phase,
                 onPrimaryAction = onPrimaryAction,
             )
         },
@@ -177,7 +184,10 @@ private fun RecorderScreen(
         ) {
             item {
                 VoiceOverviewCard(
-                    voiceState = voiceState,
+                    phase = phase,
+                    transcript = transcript,
+                    errorMessage = errorMessage,
+                    audioLevel = audioLevel,
                     onCopyText = onCopyText,
                 )
             }
@@ -289,17 +299,20 @@ private fun HistoryScreen(
 
 @Composable
 private fun VoiceOverviewCard(
-    voiceState: VoiceState,
+    phase: VoicePhase,
+    transcript: String,
+    errorMessage: String?,
+    audioLevel: Float,
     onCopyText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val statusModel = voiceState.statusModel()
+    val statusModel = remember(phase, errorMessage) { phase.statusModel(errorMessage) }
     val smoothedAudioLevel by animateFloatAsState(
-        targetValue = voiceState.audioLevel.coerceIn(0f, 1f),
+        targetValue = audioLevel.coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = 90),
         label = "audio_level",
     )
-    val isCapturePhase = voiceState.phase == VoicePhase.Listening || voiceState.phase == VoicePhase.Processing
+    val isCapturePhase = phase == VoicePhase.Listening || phase == VoicePhase.Processing
     val speechLevel = if (isCapturePhase) smoothedAudioLevel else 0f
     val speechDetected = speechLevel > 0.02f
     val speechIntensity = speechLevel.toDouble().pow(0.6).toFloat()
@@ -355,7 +368,7 @@ private fun VoiceOverviewCard(
                     .fillMaxWidth()
                     .height(4.dp),
             ) {
-                if (voiceState.phase == VoicePhase.Processing) {
+                if (phase == VoicePhase.Processing) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
             }
@@ -368,7 +381,7 @@ private fun VoiceOverviewCard(
                 val centerY = size.height / 2f
                 val barCount = 57
                 val spacing = size.width / (barCount + 1)
-                val baseAmplitude = when (voiceState.phase) {
+                val baseAmplitude = when (phase) {
                     VoicePhase.Listening -> 0.035f
                     VoicePhase.Processing -> 0.028f
                     VoicePhase.Result -> 0.022f
@@ -398,9 +411,11 @@ private fun VoiceOverviewCard(
                 }
             }
 
-            val transcript = voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
+            val displayTranscript = remember(transcript, errorMessage) {
+                transcript.ifBlank { errorMessage.orEmpty() }
+            }
             val transcriptScrollState = rememberScrollState()
-            val transcriptTextColor = if (voiceState.phase == VoicePhase.Error) {
+            val transcriptTextColor = if (phase == VoicePhase.Error) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurface
@@ -425,10 +440,10 @@ private fun VoiceOverviewCard(
                                 start = 16.dp,
                                 top = 16.dp,
                                 end = 16.dp,
-                                bottom = if (transcript.isBlank()) 16.dp else 72.dp,
+                                bottom = if (displayTranscript.isBlank()) 16.dp else 72.dp,
                             ),
                     ) {
-                        if (transcript.isBlank()) {
+                        if (displayTranscript.isBlank()) {
                             Text(
                                 text = "Your transcription will appear here.",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -436,14 +451,14 @@ private fun VoiceOverviewCard(
                             )
                         } else {
                             Text(
-                                text = transcript,
+                                text = displayTranscript,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = transcriptTextColor,
                             )
                         }
                     }
 
-                    if (transcript.isNotBlank()) {
+                    if (displayTranscript.isNotBlank()) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -463,7 +478,7 @@ private fun VoiceOverviewCard(
                                     .align(Alignment.BottomEnd)
                                     .padding(end = 16.dp, bottom = 12.dp)
                                     .size(48.dp),
-                                onClick = { onCopyText(transcript) },
+                                onClick = { onCopyText(displayTranscript) },
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.ContentCopy,
@@ -633,15 +648,15 @@ private fun HistoryItemCard(
 
 @Composable
 private fun RecorderFab(
-    voiceState: VoiceState,
+    phase: VoicePhase,
     onPrimaryAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val icon = when {
-        voiceState.phase == VoicePhase.Listening -> Icons.Filled.StopCircle
+        phase == VoicePhase.Listening -> Icons.Filled.StopCircle
         else -> Icons.Filled.Mic
     }
-    val contentDescription = if (voiceState.phase == VoicePhase.Listening) {
+    val contentDescription = if (phase == VoicePhase.Listening) {
         "Stop recording"
     } else {
         "Start recording"
@@ -664,8 +679,8 @@ private data class VoiceStatusModel(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
 )
 
-private fun VoiceState.statusModel(): VoiceStatusModel =
-    when (phase) {
+private fun VoicePhase.statusModel(errorMessage: String?): VoiceStatusModel =
+    when (this) {
         VoicePhase.Idle -> VoiceStatusModel(
             title = "Ready",
             subtitle = "Tap start when you want a local transcription.",

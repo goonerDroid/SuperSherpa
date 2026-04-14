@@ -2,31 +2,30 @@ package com.sublime.supersherpa.feature.transcription
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Job
+import com.sublime.supersherpa.model.TranscriptionHistoryItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class TranscriptionViewModel : ViewModel() {
+class TranscriptionViewModel(
+    private val historyStore: TranscriptHistoryStore? = null,
+) : ViewModel() {
     private val _voiceState = MutableStateFlow(VoiceState())
-    private var historyRepository: TranscriptHistoryRepository? = null
-    private var historyCollectionJob: Job? = null
+    private val _history = MutableStateFlow<List<TranscriptionHistoryItem>>(emptyList())
 
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
+    val history: StateFlow<List<TranscriptionHistoryItem>> = _history.asStateFlow()
 
     val currentState: VoiceState
         get() = _voiceState.value
 
-    fun attachHistoryRepository(repository: TranscriptHistoryRepository) {
-        historyRepository = repository
-        if (historyCollectionJob != null) {
-            return
-        }
-
-        historyCollectionJob = viewModelScope.launch {
-            repository.observeHistory().collect { items ->
-                _voiceState.value = _voiceState.value.copy(history = items)
+    init {
+        historyStore?.let { repository ->
+            viewModelScope.launch {
+                repository.observeHistory().collect { items ->
+                    _history.value = items
+                }
             }
         }
     }
@@ -83,24 +82,23 @@ class TranscriptionViewModel : ViewModel() {
     }
 
     fun applyNativeStatus(message: String) {
-        when {
-            message.startsWith("Error:") -> {
+        when (val event = parseNativeTranscriptionMessage(message)) {
+            is NativeTranscriptionMessage.Error -> {
                 setError(
-                    message.removePrefix("Error:").trim().ifBlank {
-                        "Transcription failed."
-                    },
+                    event.message,
                 )
             }
-            message == "Listening..." -> {
+            NativeTranscriptionMessage.Listening -> {
                 setListening()
                 setAudioLevel(0f)
             }
-            message == "Transcribing..." -> {
+            NativeTranscriptionMessage.Processing -> {
                 setProcessing()
                 setAudioLevel(0f)
             }
-            message == "Ready" -> setAudioLevel(0f)
-            message == "Canceled" -> reset()
+            NativeTranscriptionMessage.Ready -> setAudioLevel(0f)
+            NativeTranscriptionMessage.Canceled -> reset()
+            is NativeTranscriptionMessage.Transcript -> Unit
         }
     }
 
@@ -112,7 +110,7 @@ class TranscriptionViewModel : ViewModel() {
         } else {
             setResult(cleanedText)
             try {
-                historyRepository?.addTranscript(cleanedText)
+                historyStore?.addTranscript(cleanedText)
             } catch (_: Throwable) {
                 // Keep the live transcript visible even if history persistence fails.
             }

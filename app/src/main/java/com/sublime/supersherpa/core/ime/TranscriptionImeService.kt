@@ -7,10 +7,11 @@ import android.view.View
 import androidx.annotation.Keep
 import com.frogobox.libkeyboard.common.core.BaseKeyboardIME
 import com.sublime.supersherpa.R
-import com.sublime.supersherpa.core.history.local.SuperSherpaDatabase
+import com.sublime.supersherpa.SuperSherpaApp
 import com.sublime.supersherpa.core.rust.RustTranscriptionBridge
 import com.sublime.supersherpa.databinding.ImeKeyboardLibraryBinding
-import com.sublime.supersherpa.feature.transcription.TranscriptHistoryRepository
+import com.sublime.supersherpa.feature.transcription.NativeTranscriptionMessage
+import com.sublime.supersherpa.feature.transcription.parseNativeTranscriptionMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,9 +23,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     private val bridge by lazy { RustTranscriptionBridge() }
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val historyRepository by lazy {
-        TranscriptHistoryRepository(
-            dao = SuperSherpaDatabase.getInstance(this).transcriptHistoryDao(),
-        )
+        (application as SuperSherpaApp).appContainer.transcriptHistoryStore
     }
 
     private var voiceBarPhase = VoiceBarPhase.Idle
@@ -109,15 +108,15 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     @Keep
     fun onStatusUpdate(message: String) {
         mainHandler.post {
-            when (message) {
-                "Listening..." -> {
+            when (val event = parseNativeTranscriptionMessage(message)) {
+                NativeTranscriptionMessage.Listening -> {
                     voiceBarPhase = VoiceBarPhase.Listening
                     latestTranscript = ""
                 }
-                "Transcribing..." -> {
+                NativeTranscriptionMessage.Processing -> {
                     voiceBarPhase = VoiceBarPhase.Processing
                 }
-                "Ready" -> {
+                NativeTranscriptionMessage.Ready -> {
                     if (voiceBarPhase == VoiceBarPhase.Processing) {
                         voiceBarPhase = if (latestTranscript.isBlank()) {
                             VoiceBarPhase.Idle
@@ -126,18 +125,19 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
                         }
                     }
                 }
-                "Canceled" -> {
+                NativeTranscriptionMessage.Canceled -> {
                     voiceBarPhase = VoiceBarPhase.Idle
                     latestTranscript = ""
                     isAwaitingCommit = false
                 }
-                else -> {
-                    if (message.startsWith("Error:")) {
-                        voiceBarPhase = VoiceBarPhase.Error
-                        latestTranscript = message.removePrefix("Error:").trim()
-                        isAwaitingCommit = false
-                    } else if (voiceBarPhase == VoiceBarPhase.Idle) {
-                        latestTranscript = message
+                is NativeTranscriptionMessage.Error -> {
+                    voiceBarPhase = VoiceBarPhase.Error
+                    latestTranscript = event.message
+                    isAwaitingCommit = false
+                }
+                is NativeTranscriptionMessage.Transcript -> {
+                    if (voiceBarPhase == VoiceBarPhase.Idle) {
+                        latestTranscript = event.text
                     }
                 }
             }

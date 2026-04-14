@@ -17,12 +17,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.Keep
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
@@ -30,15 +29,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sublime.supersherpa.core.clipboard.AndroidTranscriptClipboard
-import com.sublime.supersherpa.core.history.local.SuperSherpaDatabase
 import com.sublime.supersherpa.core.rust.RustTranscriptionBridge
+import com.sublime.supersherpa.feature.transcription.TranscriptionViewModelFactory
 import com.sublime.supersherpa.feature.transcription.AppScreen
-import com.sublime.supersherpa.feature.transcription.TranscriptHistoryRepository
 import com.sublime.supersherpa.feature.transcription.TranscriptionScreen
 import com.sublime.supersherpa.feature.transcription.TranscriptionViewModel
 import com.sublime.supersherpa.feature.transcription.VoicePhase
@@ -46,7 +46,6 @@ import com.sublime.supersherpa.ui.animation.animatedScreenTransition
 import androidx.compose.material3.MaterialTheme
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme
 import kotlinx.coroutines.launch
-import androidx.core.content.edit
 
 @OptIn(ExperimentalAnimationApi::class)
 class MainActivity : ComponentActivity() {
@@ -54,7 +53,10 @@ class MainActivity : ComponentActivity() {
         const val MIC_PERMISSION_REQUESTED_PREF = "mic_permission_requested"
     }
 
-    private val transcriptionViewModel by viewModels<TranscriptionViewModel>()
+    private val transcriptionViewModel by viewModels<TranscriptionViewModel> {
+        val app = application as SuperSherpaApp
+        TranscriptionViewModelFactory(app.appContainer.transcriptHistoryStore)
+    }
     private val bridge by lazy { RustTranscriptionBridge() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,15 +64,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         bridge.initNative(this)
         val permissionPrefs = getSharedPreferences("permission_state", MODE_PRIVATE)
-        val historyRepository = TranscriptHistoryRepository(
-            dao = SuperSherpaDatabase.getInstance(this).transcriptHistoryDao(),
-        )
-        transcriptionViewModel.attachHistoryRepository(historyRepository)
 
         setContent {
-            val voiceState by transcriptionViewModel.voiceState.collectAsState()
+            val voiceState by transcriptionViewModel.voiceState.collectAsStateWithLifecycle()
+            val history by transcriptionViewModel.history.collectAsStateWithLifecycle()
             val lifecycleOwner = LocalLifecycleOwner.current
-            val transcriptClipboard = remember { AndroidTranscriptClipboard(this@MainActivity) }
+            val transcriptClipboard = remember {
+                AndroidTranscriptClipboard(this@MainActivity)
+            }
             var currentScreen by rememberSaveable { mutableStateOf(AppScreen.Recorder) }
             var hasRequestedMicPermission by rememberSaveable {
                 mutableStateOf(permissionPrefs.getBoolean(MIC_PERMISSION_REQUESTED_PREF, false))
@@ -158,6 +159,7 @@ class MainActivity : ComponentActivity() {
                         TranscriptionScreen(
                             screen = activeScreen,
                             voiceState = voiceState,
+                            history = history,
                             hasMicPermission = hasMicPermission,
                             canRequestMicPermission = canRequestMicPermission,
                             isKeyboardReady = isKeyboardAccessReady,
