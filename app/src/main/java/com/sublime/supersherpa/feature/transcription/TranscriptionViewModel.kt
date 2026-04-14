@@ -1,37 +1,69 @@
 package com.sublime.supersherpa.feature.transcription
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class TranscriptionViewModel : ViewModel() {
     private val _voiceState = MutableStateFlow(VoiceState())
+    private var historyRepository: TranscriptHistoryRepository? = null
+    private var historyCollectionJob: Job? = null
 
     val voiceState: StateFlow<VoiceState> = _voiceState.asStateFlow()
 
     val currentState: VoiceState
         get() = _voiceState.value
 
+    fun attachHistoryRepository(repository: TranscriptHistoryRepository) {
+        historyRepository = repository
+        if (historyCollectionJob != null) {
+            return
+        }
+
+        historyCollectionJob = viewModelScope.launch {
+            repository.observeHistory().collect { items ->
+                _voiceState.value = _voiceState.value.copy(history = items)
+            }
+        }
+    }
+
     fun setListening() {
-        _voiceState.value = VoiceState(phase = VoicePhase.Listening)
+        _voiceState.value = _voiceState.value.copy(
+            phase = VoicePhase.Listening,
+            transcript = "",
+            errorMessage = null,
+            audioLevel = 0f,
+        )
     }
 
     fun setProcessing() {
-        _voiceState.value = VoiceState(phase = VoicePhase.Processing)
+        _voiceState.value = _voiceState.value.copy(
+            phase = VoicePhase.Processing,
+            transcript = "",
+            errorMessage = null,
+            audioLevel = 0f,
+        )
     }
 
     fun setResult(text: String) {
-        _voiceState.value = VoiceState(
+        _voiceState.value = _voiceState.value.copy(
             phase = VoicePhase.Result,
             transcript = text,
+            errorMessage = null,
+            audioLevel = 0f,
         )
     }
 
     fun setError(message: String) {
-        _voiceState.value = VoiceState(
+        _voiceState.value = _voiceState.value.copy(
             phase = VoicePhase.Error,
             errorMessage = message,
+            transcript = "",
+            audioLevel = 0f,
         )
     }
 
@@ -42,7 +74,12 @@ class TranscriptionViewModel : ViewModel() {
     }
 
     fun reset() {
-        _voiceState.value = VoiceState()
+        _voiceState.value = _voiceState.value.copy(
+            phase = VoicePhase.Idle,
+            transcript = "",
+            errorMessage = null,
+            audioLevel = 0f,
+        )
     }
 
     fun applyNativeStatus(message: String) {
@@ -67,7 +104,7 @@ class TranscriptionViewModel : ViewModel() {
         }
     }
 
-    fun applyTranscribedText(text: String): Boolean {
+    suspend fun applyTranscribedText(text: String): Boolean {
         if (currentState.phase != VoicePhase.Processing) {
             return false
         }
@@ -77,6 +114,7 @@ class TranscriptionViewModel : ViewModel() {
             reset()
             false
         } else {
+            historyRepository?.addTranscript(cleanedText)
             setResult(cleanedText)
             true
         }

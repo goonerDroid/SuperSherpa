@@ -1,5 +1,7 @@
 package com.sublime.supersherpa.feature.transcription
 
+import com.sublime.supersherpa.model.TranscriptionHistoryItem
+
 /**
  * Immutable UI state for the transcription flow.
  *
@@ -11,10 +13,8 @@ data class VoiceState(
     val transcript: String = "",
     val errorMessage: String? = null,
     val audioLevel: Float = 0f,
-) {
-    val isActive: Boolean
-        get() = phase == VoicePhase.Listening || phase == VoicePhase.Processing
-}
+    val history: List<TranscriptionHistoryItem> = emptyList(),
+)
 
 enum class VoicePhase {
     Idle,

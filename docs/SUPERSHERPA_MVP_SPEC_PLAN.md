@@ -1,4 +1,4 @@
-# Voxy MVP Spec Plan
+# SuperSherpa MVP Spec Plan
 
 ## 1. Goal
 Build an offline Android MVP with:

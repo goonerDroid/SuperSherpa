@@ -1,35 +1,52 @@
 package com.sublime.supersherpa.feature.transcription
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.StopCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.MicNone
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,99 +57,243 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
+import com.sublime.supersherpa.feature.settings.SettingsScreen
+import com.sublime.supersherpa.model.TranscriptionHistoryItem
+import java.text.DateFormat
+import java.util.Date
 import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.pow
 import kotlin.math.sin
 
-private val RecorderBackground = Color(0xFF141317)
-private val RecorderPanel = Color(0xFF1D1E22)
-private val RecorderPanelMuted = Color(0xFF25272C)
-private val RecorderText = Color(0xFFF4F2F4)
-private val RecorderMutedText = Color(0xFF8D8A95)
-private val RecorderWave = Color(0xFF7E7D84)
-private val RecorderAccent = Color(0xFFE45E42)
-private val RecorderAccentDark = Color(0xFF712A20)
-private val RecorderWarm = Color(0xFFE2B24F)
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptionScreen(
+    screen: AppScreen,
     voiceState: VoiceState,
     hasMicPermission: Boolean,
+    canRequestMicPermission: Boolean,
+    isKeyboardReady: Boolean,
     onRequestMicPermission: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onPrimaryAction: () -> Unit,
+    onOpenKeyboardSettings: () -> Unit,
+    onNavigate: (AppScreen) -> Unit,
+    onCopyText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = RecorderBackground,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-        ) {
-            TopBar(
-                title = "SuperSherpa",
-            )
+    when (screen) {
+        AppScreen.Recorder -> RecorderScreen(
+            voiceState = voiceState,
+            hasMicPermission = hasMicPermission,
+            canRequestMicPermission = canRequestMicPermission,
+            onRequestMicPermission = onRequestMicPermission,
+            onOpenAppSettings = onOpenAppSettings,
+            onPrimaryAction = onPrimaryAction,
+            onOpenSettings = { onNavigate(AppScreen.Settings) },
+            onOpenHistory = { onNavigate(AppScreen.History) },
+            onCopyText = onCopyText,
+            modifier = modifier.fillMaxSize(),
+        )
+        AppScreen.History -> HistoryScreen(
+            history = voiceState.history,
+            onClose = { onNavigate(AppScreen.Recorder) },
+            onCopyText = onCopyText,
+            modifier = modifier.fillMaxSize(),
+        )
+        AppScreen.Settings -> SettingsScreen(
+            isKeyboardReady = isKeyboardReady,
+            hasMicPermission = hasMicPermission,
+            canRequestMicPermission = canRequestMicPermission,
+            onBack = { onNavigate(AppScreen.Recorder) },
+            onOpenKeyboardSettings = onOpenKeyboardSettings,
+            onRequestMicPermission = onRequestMicPermission,
+            onOpenAppSettings = onOpenAppSettings,
+            modifier = modifier,
+        )
+    }
+}
 
-            Spacer(modifier = Modifier.height(56.dp))
-
-            VoiceWaveSection(
-                voiceState = voiceState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
-
-            BottomControls(
-                voiceState = voiceState,
-                hasMicPermission = hasMicPermission,
-                onPrimaryAction = {
-                    if (hasMicPermission) {
-                        onPrimaryAction()
-                    } else {
-                        onRequestMicPermission()
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecorderScreen(
+    voiceState: VoiceState,
+    hasMicPermission: Boolean,
+    canRequestMicPermission: Boolean,
+    onRequestMicPermission: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onPrimaryAction: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onCopyText: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = "SuperSherpa",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                },
+                actions = {
+                    IconButton(onClick = onOpenHistory) {
+                        Icon(
+                            imageVector = Icons.Filled.History,
+                            contentDescription = "Open history",
+                        )
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                        )
                     }
                 },
             )
+        },
+        floatingActionButton = {
+            RecorderFab(
+                voiceState = voiceState,
+                onPrimaryAction = onPrimaryAction,
+            )
+        },
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 112.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item {
+                VoiceOverviewCard(
+                    voiceState = voiceState,
+                    onCopyText = onCopyText,
+                )
+            }
+
+            if (!hasMicPermission) {
+                item {
+                    PermissionCard(
+                        canRequestMicPermission = canRequestMicPermission,
+                        onRequestMicPermission = onRequestMicPermission,
+                        onOpenAppSettings = onOpenAppSettings,
+                    )
+                }
+            }
+
+            item {
+                HistoryActionCard(onOpenHistory = onOpenHistory)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HistoryScreen(
+    history: List<TranscriptionHistoryItem>,
+    onClose: () -> Unit,
+    onCopyText: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = "History",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                        )
+                    }
+                },
+            )
+        },
+    ) { paddingValues ->
+        if (history.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.MicNone,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "No transcription available yet",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            text = "Your completed transcriptions will appear here.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        FilledTonalButton(onClick = onClose) {
+                            Text(text = "Back to recorder")
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(history, key = { item -> item.id }) { item ->
+                    HistoryItemCard(
+                        item = item,
+                        onCopyText = onCopyText,
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun TopBar(
-    title: String,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium.copy(
-                color = RecorderText,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 28.sp,
-            ),
-        )
-    }
-}
-
-@Composable
-private fun VoiceWaveSection(
+private fun VoiceOverviewCard(
     voiceState: VoiceState,
+    onCopyText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val statusModel = voiceState.statusModel()
     val smoothedAudioLevel by animateFloatAsState(
         targetValue = voiceState.audioLevel.coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = 90),
@@ -142,204 +303,396 @@ private fun VoiceWaveSection(
     val speechLevel = if (isCapturePhase) smoothedAudioLevel else 0f
     val speechDetected = speechLevel > 0.02f
     val speechIntensity = speechLevel.toDouble().pow(0.6).toFloat()
+    val phaseShift = if (speechDetected) (speechIntensity * PI).toFloat() else 0f
+    val pulse = if (speechDetected) 1f + (speechIntensity * 0.25f) else 1f
+    val barColor = MaterialTheme.colorScheme.primary
 
-    val infiniteTransition = rememberInfiniteTransition(label = "wave")
-    val animatedPhaseShift by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (PI * 2f).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "phase_shift",
-    )
-    val animatedPulse by infiniteTransition.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "pulse",
-    )
-    val phaseShift = if (speechDetected) animatedPhaseShift else 0f
-    val pulse = if (speechDetected) animatedPulse else 1f
-
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(150.dp),
-        ) {
-            val centerY = size.height / 2f
-            val barCount = 57
-            val spacing = size.width / (barCount + 1)
-            val baseAmplitude = when (voiceState.phase) {
-                VoicePhase.Listening -> 0.035f
-                VoicePhase.Processing -> 0.028f
-                VoicePhase.Result -> 0.022f
-                VoicePhase.Error -> 0.022f
-                VoicePhase.Idle -> 0.018f
-            }
-            val speechAmplitude = (speechIntensity * 0.9f * pulse).coerceIn(0f, 1f)
-
-            for (index in 0 until barCount) {
-                val x = spacing * (index + 1)
-                val distance = (index - (barCount / 2f)) / (barCount / 2f)
-                val taper = (1f - distance.absoluteValue).coerceAtLeast(0.15f)
-                val wave = if (speechDetected) sin((index * 0.45f) + phaseShift) else 0f
-                val secondaryWave = if (speechDetected) sin((index * 0.21f) - phaseShift * 0.6f) else 0f
-                val movement = if (speechDetected) {
-                    0.5f + 0.5f * ((wave + secondaryWave) / 2f + 1f)
-                } else {
-                    1f
-                }
-                val amplitude = size.height * 0.32f * (baseAmplitude + speechAmplitude) * taper * movement
-                val barHeight = amplitude.coerceAtLeast(3f)
-                drawRoundRect(
-                    color = RecorderWave.copy(alpha = 0.96f),
-                    topLeft = Offset(x, centerY - barHeight / 2f),
-                    size = Size(3.5f, barHeight),
-                    cornerRadius = CornerRadius(8f, 8f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BottomControls(
-    voiceState: VoiceState,
-    hasMicPermission: Boolean,
-    onPrimaryAction: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val transcript = voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
-
-    Column(
+    Card(
         modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
     ) {
-        if (transcript.isNotBlank()) {
-            val transcriptScrollState = rememberScrollState()
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = statusModel.icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = statusModel.title,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        text = statusModel.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(110.dp)
-                    .verticalScroll(transcriptScrollState),
+                    .height(4.dp),
             ) {
-                Text(
-                    text = transcript,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        color = if (voiceState.phase == VoicePhase.Error) RecorderAccent else RecorderText,
-                        textAlign = TextAlign.Center,
-                        fontWeight = FontWeight.Medium,
-                        lineHeight = 24.sp,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                if (voiceState.phase == VoicePhase.Processing) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(156.dp),
+            ) {
+                val centerY = size.height / 2f
+                val barCount = 57
+                val spacing = size.width / (barCount + 1)
+                val baseAmplitude = when (voiceState.phase) {
+                    VoicePhase.Listening -> 0.035f
+                    VoicePhase.Processing -> 0.028f
+                    VoicePhase.Result -> 0.022f
+                    VoicePhase.Error -> 0.022f
+                    VoicePhase.Idle -> 0.018f
+                }
+                val speechAmplitude = (speechIntensity * 0.9f * pulse).coerceIn(0f, 1f)
+                for (index in 0 until barCount) {
+                    val x = spacing * (index + 1)
+                    val distance = (index - (barCount / 2f)) / (barCount / 2f)
+                    val taper = (1f - distance.absoluteValue).coerceAtLeast(0.15f)
+                    val wave = if (speechDetected) sin((index * 0.45f) + phaseShift) else 0f
+                    val secondaryWave = if (speechDetected) sin((index * 0.21f) - phaseShift * 0.6f) else 0f
+                    val movement = if (speechDetected) {
+                        0.5f + 0.5f * ((wave + secondaryWave) / 2f + 1f)
+                    } else {
+                        1f
+                    }
+                    val amplitude = size.height * 0.32f * (baseAmplitude + speechAmplitude) * taper * movement
+                    val barHeight = amplitude.coerceAtLeast(3f)
+                    drawRoundRect(
+                        color = barColor.copy(alpha = 0.96f),
+                        topLeft = Offset(x, centerY - barHeight / 2f),
+                        size = Size(3.5f, barHeight),
+                        cornerRadius = CornerRadius(8f, 8f),
+                    )
+                }
+            }
+
+            val transcript = voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
+            val transcriptScrollState = rememberScrollState()
+            val transcriptTextColor = if (voiceState.phase == VoicePhase.Error) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+
+            OutlinedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(232.dp),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(transcriptScrollState)
+                            .padding(
+                                start = 16.dp,
+                                top = 16.dp,
+                                end = 16.dp,
+                                bottom = if (transcript.isBlank()) 16.dp else 72.dp,
+                            ),
+                    ) {
+                        if (transcript.isBlank()) {
+                            Text(
+                                text = "Your transcription will appear here.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text(
+                                text = transcript,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = transcriptTextColor,
+                            )
+                        }
+                    }
+
+                    if (transcript.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(72.dp)
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0f),
+                                            MaterialTheme.colorScheme.surfaceContainerLow,
+                                        ),
+                                    ),
+                                ),
+                        ) {
+                            IconButton(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 16.dp, bottom = 12.dp)
+                                    .size(48.dp),
+                                onClick = { onCopyText(transcript) },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.ContentCopy,
+                                    contentDescription = "Copy transcription",
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
-
-        Text(
-            text = when {
-                !hasMicPermission -> "Microphone permission required"
-                voiceState.phase == VoicePhase.Listening || voiceState.phase == VoicePhase.Processing -> "Recording"
-                voiceState.phase == VoicePhase.Result -> "Tap to record again"
-                voiceState.phase == VoicePhase.Error -> voiceState.errorMessage ?: "Something went wrong"
-                else -> "Tap to record"
-            },
-            style = MaterialTheme.typography.bodyMedium.copy(
-                color = RecorderMutedText,
-                textAlign = TextAlign.Center,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        RecordButton(
-            phase = voiceState.phase,
-            enabled = hasMicPermission,
-            onClick = onPrimaryAction,
-        )
     }
 }
 
 @Composable
-private fun RecordButton(
-    phase: VoicePhase,
-    enabled: Boolean,
-    onClick: () -> Unit,
+private fun PermissionCard(
+    canRequestMicPermission: Boolean,
+    onRequestMicPermission: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val outerColor by animateColorAsState(
-        targetValue = if (enabled) RecorderAccent else RecorderMutedText.copy(alpha = 0.35f),
-        animationSpec = tween(300),
-        label = "record_outer",
-    )
-    val innerColor by animateColorAsState(
-        targetValue = if (enabled) RecorderAccentDark else RecorderPanelMuted,
-        animationSpec = tween(300),
-        label = "record_inner",
-    )
+    val actionLabel = if (canRequestMicPermission) {
+        "Allow microphone"
+    } else {
+        "Open app settings"
+    }
 
-    Box(
-        modifier = modifier
-            .size(width = 124.dp, height = 72.dp)
-            .clickable(
-                enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ),
     ) {
-        Canvas(
-            modifier = Modifier.fillMaxSize(),
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            drawRoundRect(
-                color = outerColor,
-                style = Stroke(width = 5f),
-                cornerRadius = CornerRadius(40f, 40f),
-            )
-            drawRoundRect(
-                color = innerColor,
-                topLeft = Offset(7f, 7f),
-                size = Size(size.width - 14f, size.height - 14f),
-                cornerRadius = CornerRadius(34f, 34f),
-            )
-        }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MicOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = "Microphone permission required",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "Grant access to start real-time speech capture.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
-        val isRecording = phase == VoicePhase.Listening || phase == VoicePhase.Processing
-        Box(
-            modifier = Modifier
-                .size(if (isRecording) 28.dp else 24.dp),
-            contentAlignment = Alignment.Center,
+            FilledTonalButton(
+                onClick = if (canRequestMicPermission) onRequestMicPermission else onOpenAppSettings,
+            ) {
+                Text(text = actionLabel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryActionCard(
+    onOpenHistory: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (isRecording) {
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(outerColor),
+            Text(
+                text = "History",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "Review previous transcriptions and reuse text that is already stored locally.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(onClick = onOpenHistory) {
+                Icon(
+                    imageVector = Icons.Filled.History,
+                    contentDescription = null,
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(outerColor),
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Open history")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryItemCard(
+    item: TranscriptionHistoryItem,
+    onCopyText: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val formattedTime = remember(item.createdAtEpochMillis) {
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            .format(Date(item.createdAtEpochMillis))
+    }
+
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = item.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(RecorderAccentDark),
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            IconButton(
+                modifier = Modifier.size(48.dp),
+                onClick = { onCopyText(item.text) },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = "Copy history item",
                 )
             }
         }
     }
 }
+
+@Composable
+private fun RecorderFab(
+    voiceState: VoiceState,
+    onPrimaryAction: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val icon = when {
+        voiceState.phase == VoicePhase.Listening -> Icons.Filled.StopCircle
+        else -> Icons.Filled.Mic
+    }
+    val contentDescription = if (voiceState.phase == VoicePhase.Listening) {
+        "Stop recording"
+    } else {
+        "Start recording"
+    }
+
+    FloatingActionButton(
+        modifier = modifier,
+        onClick = onPrimaryAction,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+        )
+    }
+}
+
+private data class VoiceStatusModel(
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+)
+
+private fun VoiceState.statusModel(): VoiceStatusModel =
+    when (phase) {
+        VoicePhase.Idle -> VoiceStatusModel(
+            title = "Ready",
+            subtitle = "Tap start when you want a local transcription.",
+            icon = Icons.Filled.Mic,
+        )
+
+        VoicePhase.Listening -> VoiceStatusModel(
+            title = "Listening",
+            subtitle = "Audio is streaming into the transcription engine.",
+            icon = Icons.Outlined.GraphicEq,
+        )
+
+        VoicePhase.Processing -> VoiceStatusModel(
+            title = "Processing",
+            subtitle = "The on-device model is converting speech to text.",
+            icon = Icons.Filled.Autorenew,
+        )
+
+        VoicePhase.Result -> VoiceStatusModel(
+            title = "Result ready",
+            subtitle = "The latest transcription is ready to review.",
+            icon = Icons.Filled.CheckCircle,
+        )
+
+        VoicePhase.Error -> VoiceStatusModel(
+            title = "Error",
+            subtitle = errorMessage ?: "Transcription failed.",
+            icon = Icons.Outlined.ErrorOutline,
+        )
+    }

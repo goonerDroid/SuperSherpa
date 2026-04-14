@@ -11,4 +11,5 @@
   <color name="keypad_mini">#FF2E3340</color>
   <color name="keypad_mini_stroke">#33FFFFFF</color>
   <color name="tv_text">#FFFFFFFF</color>
+  <color name="ime_surface">#FF0B1211</color>
 </resources>
