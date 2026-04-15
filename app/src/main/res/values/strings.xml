@@ -4,7 +4,7 @@
   <string name="voice_bar_stop">Stop</string>
   <string name="voice_bar_wait">Wait</string>
   <string name="voice_bar_ready">Voice input</string>
-  <string name="voice_bar_listening">Listening… Tap again to paste</string>
+  <string name="voice_bar_listening">Tap again to paste</string>
   <string name="voice_bar_processing">Transcribing…</string>
   <string name="voice_bar_empty">No speech detected</string>
 </resources>
