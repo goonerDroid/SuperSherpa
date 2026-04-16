@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use jni::objects::{GlobalRef, JClass, JObject, JShortArray};
+use jni::objects::{GlobalRef, JClass, JObject, JShortArray, JString};
 use jni::JNIEnv;
 use once_cell::sync::Lazy;
 
@@ -12,9 +12,19 @@ use crate::TranscriptionEngine;
 static GLOBAL_ENGINE: Lazy<Mutex<Option<Arc<Mutex<ParakeetEngine>>>>> =
     Lazy::new(|| Mutex::new(None));
 static GLOBAL_CONTEXT: Lazy<Mutex<Option<GlobalRef>>> = Lazy::new(|| Mutex::new(None));
+static MODEL_DIRECTORY_OVERRIDE: Lazy<Mutex<Option<PathBuf>>> = Lazy::new(|| Mutex::new(None));
 static VOICE_SESSION: Lazy<Mutex<Option<VoiceSessionState>>> = Lazy::new(|| Mutex::new(None));
 static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
     Lazy::new(|| (Mutex::new(LoadState::Idle), Condvar::new()));
+
+const MODEL_DIR_NAME: &str = "parakeet-tdt-0.6b-v3-int8";
+const REQUIRED_MODEL_FILES: [&str; 5] = [
+    "config.json",
+    "vocab.txt",
+    "encoder-model.int8.onnx",
+    "decoder_joint-model.int8.onnx",
+    "nemo128.onnx",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 enum LoadState {
@@ -128,8 +138,7 @@ fn ensure_loaded_from_thread(
 }
 
 fn do_load(env: &mut JNIEnv, context: &jni::objects::JObject) -> Result<(), String> {
-    notify_status(env, context, "Checking assets...");
-    let path = extract_assets(env, context).map_err(|e| {
+    let path = resolve_model_dir(env, context).map_err(|e| {
         let msg = format!("Asset error: {}", e);
         notify_status(env, context, &format!("Error: {}", msg));
         msg
@@ -158,6 +167,27 @@ fn do_load(env: &mut JNIEnv, context: &jni::objects::JObject) -> Result<(), Stri
     }
 }
 
+fn resolve_model_dir(env: &mut JNIEnv, context: &jni::objects::JObject) -> anyhow::Result<PathBuf> {
+    if let Some(model_dir) = MODEL_DIRECTORY_OVERRIDE.lock().unwrap().clone() {
+        if has_complete_model(&model_dir) {
+            return Ok(model_dir);
+        }
+        log::warn!(
+            "Ignoring configured model directory because it is incomplete: {}",
+            model_dir.display()
+        );
+    }
+
+    notify_status(env, context, "Checking assets...");
+    extract_assets(env, context)
+}
+
+fn has_complete_model(model_dir: &PathBuf) -> bool {
+    REQUIRED_MODEL_FILES
+        .iter()
+        .all(|file_name| model_dir.join(file_name).is_file())
+}
+
 fn extract_assets(env: &mut JNIEnv, context: &jni::objects::JObject) -> anyhow::Result<PathBuf> {
     let files_dir_obj = env
         .call_method(context, "getFilesDir", "()Ljava/io/File;", &[])?
@@ -173,7 +203,7 @@ fn extract_assets(env: &mut JNIEnv, context: &jni::objects::JObject) -> anyhow::
     let path_string: String = env.get_string(&path_str_obj.into())?.into();
 
     let base_path = PathBuf::from(path_string);
-    let model_dir = base_path.join("parakeet-tdt-0.6b-v3-int8");
+    let model_dir = base_path.join(MODEL_DIR_NAME);
     let marker_file = model_dir.join(".extraction_complete");
     if marker_file.exists() {
         return Ok(model_dir);
@@ -193,7 +223,7 @@ fn extract_assets(env: &mut JNIEnv, context: &jni::objects::JObject) -> anyhow::
             &[],
         )?
         .l()?;
-    copy_assets_recursively(env, &asset_manager_obj, "parakeet-tdt-0.6b-v3-int8", &base_path)?;
+    copy_assets_recursively(env, &asset_manager_obj, MODEL_DIR_NAME, &base_path)?;
     std::fs::write(&marker_file, "ok")?;
     Ok(model_dir)
 }
@@ -284,11 +314,15 @@ fn copy_asset_file(
     }
 }
 
-fn init_native(env: JNIEnv, activity: JObject) -> Result<(), String> {
+fn init_native(env: JNIEnv, activity: JObject, model_dir_override: Option<String>) -> Result<(), String> {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
     let _ = ort::init().commit();
+    *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = model_dir_override
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from);
     init_voice_session(env, activity)
 }
 
@@ -514,11 +548,17 @@ fn voice_cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_initNative(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     activity: JObject,
+    model_dir: JString,
 ) {
-    let _ = init_native(env, activity);
+    let model_dir_override = if model_dir.is_null() {
+        None
+    } else {
+        env.get_string(&model_dir).ok().map(Into::into)
+    };
+    let _ = init_native(env, activity, model_dir_override);
 }
 
 #[no_mangle]
@@ -529,6 +569,7 @@ pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscr
     *GLOBAL_ENGINE.lock().unwrap() = None;
     *VOICE_SESSION.lock().unwrap() = None;
     *GLOBAL_CONTEXT.lock().unwrap() = None;
+    *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = None;
 }
 
 #[no_mangle]

@@ -58,11 +58,14 @@ class MainActivity : ComponentActivity() {
         TranscriptionViewModelFactory(app.appContainer.transcriptHistoryStore)
     }
     private val bridge by lazy { RustTranscriptionBridge() }
+    private val transcriptionRuntimeInitializer by lazy {
+        (application as SuperSherpaApp).appContainer.transcriptionRuntimeInitializer
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        bridge.initNative(this)
+        transcriptionRuntimeInitializer.initialize(this, bridge)
         val permissionPrefs = getSharedPreferences("permission_state", MODE_PRIVATE)
 
         setContent {
@@ -122,7 +125,7 @@ class MainActivity : ComponentActivity() {
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
-                        bridge.initNative(this@MainActivity)
+                        transcriptionRuntimeInitializer.initialize(this@MainActivity, bridge)
                         hasMicPermission = ContextCompat.checkSelfPermission(
                             this@MainActivity,
                             Manifest.permission.RECORD_AUDIO,

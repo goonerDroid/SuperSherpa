@@ -13,7 +13,7 @@ class RustTranscriptionBridge {
         System.loadLibrary("transcribe_rs")
     }
 
-    external fun initNative(context: Context)
+    external fun initNative(context: Context, modelDirectory: String?)
 
     external fun cleanupNative()
 

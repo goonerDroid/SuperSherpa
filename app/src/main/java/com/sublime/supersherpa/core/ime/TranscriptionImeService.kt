@@ -25,6 +25,9 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bridge by lazy { RustTranscriptionBridge() }
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val transcriptionRuntimeInitializer by lazy {
+        (application as SuperSherpaApp).appContainer.transcriptionRuntimeInitializer
+    }
     private val historyRepository by lazy {
         (application as SuperSherpaApp).appContainer.transcriptHistoryStore
     }
@@ -40,7 +43,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
 
     override fun onCreate() {
         super.onCreate()
-        bridge.initNative(this)
+        transcriptionRuntimeInitializer.initialize(this, bridge)
     }
 
     override fun onDestroy() {
@@ -69,7 +72,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
-        bridge.initNative(this)
+        transcriptionRuntimeInitializer.initialize(this, bridge)
         super.onStartInputView(info, restarting)
     }
 
