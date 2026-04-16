@@ -25,3 +25,4 @@ app/src/main/assets/sherpa-onnx-streaming-zipformer-en-2023-06-26/*
 /app/src/main/assets/parakeet-tdt-0.6b-v3-int8/*
 /model_assets/src/main/assets/parakeet-tdt-0.6b-v3-int8/*
 !/model_assets/src/main/assets/parakeet-tdt-0.6b-v3-int8/.gitkeep
+/docs/**
