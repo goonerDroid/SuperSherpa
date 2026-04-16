@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity() {
     private val transcriptionRuntimeInitializer by lazy {
         (application as SuperSherpaApp).appContainer.transcriptionRuntimeInitializer
     }
+    private val otaModelDeliveryManager by lazy {
+        (application as SuperSherpaApp).appContainer.otaModelDeliveryManager
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +74,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val voiceState by transcriptionViewModel.voiceState.collectAsStateWithLifecycle()
             val history by transcriptionViewModel.history.collectAsStateWithLifecycle()
+            val modelDeliveryState by otaModelDeliveryManager.state.collectAsStateWithLifecycle()
+            val modelSource by otaModelDeliveryManager.modelSource.collectAsStateWithLifecycle()
             val lifecycleOwner = LocalLifecycleOwner.current
             val transcriptClipboard = remember {
                 AndroidTranscriptClipboard(this@MainActivity)
@@ -126,6 +131,7 @@ class MainActivity : ComponentActivity() {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
                         transcriptionRuntimeInitializer.initialize(this@MainActivity, bridge)
+                        otaModelDeliveryManager.refresh()
                         hasMicPermission = ContextCompat.checkSelfPermission(
                             this@MainActivity,
                             Manifest.permission.RECORD_AUDIO,
@@ -167,6 +173,8 @@ class MainActivity : ComponentActivity() {
                             hasMicPermission = hasMicPermission,
                             canRequestMicPermission = canRequestMicPermission,
                             isKeyboardReady = isKeyboardAccessReady,
+                            modelDeliveryState = modelDeliveryState,
+                            modelSource = modelSource,
                             onRequestMicPermission = {
                                 hasRequestedMicPermission = true
                                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -214,6 +222,9 @@ class MainActivity : ComponentActivity() {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                 )
+                            },
+                            onInstallModel = {
+                                otaModelDeliveryManager.installModel()
                             },
                             onNavigate = { destination ->
                                 currentScreen = destination
