@@ -65,6 +65,13 @@ fn is_engine_loaded() -> bool {
     GLOBAL_ENGINE.lock().unwrap().is_some()
 }
 
+fn reset_loaded_engine_state() {
+    *GLOBAL_ENGINE.lock().unwrap() = None;
+    let (lock, cvar) = &*LOAD_STATE;
+    *lock.lock().unwrap() = LoadState::Idle;
+    cvar.notify_all();
+}
+
 fn ensure_loaded_from_thread(
     jvm: &Arc<jni::JavaVM>,
     target_ref: &GlobalRef,
@@ -318,10 +325,18 @@ fn init_native(env: JNIEnv, activity: JObject, model_dir_override: Option<String
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
     let _ = ort::init().commit();
-    *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = model_dir_override
+    let next_model_dir_override = model_dir_override
         .map(|path| path.trim().to_string())
         .filter(|path| !path.is_empty())
         .map(PathBuf::from);
+    let mut current_model_dir_override = MODEL_DIRECTORY_OVERRIDE.lock().unwrap();
+    if *current_model_dir_override != next_model_dir_override {
+        *current_model_dir_override = next_model_dir_override;
+        drop(current_model_dir_override);
+        reset_loaded_engine_state();
+    } else {
+        *current_model_dir_override = next_model_dir_override;
+    }
     init_voice_session(env, activity)
 }
 
@@ -562,13 +577,23 @@ pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscr
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscriptionBridge_cleanupNative(
-    _env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
+    target: JObject,
 ) {
-    *GLOBAL_ENGINE.lock().unwrap() = None;
-    *VOICE_SESSION.lock().unwrap() = None;
-    *GLOBAL_CONTEXT.lock().unwrap() = None;
-    *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = None;
+    let should_cleanup = GLOBAL_CONTEXT
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|current_target| env.is_same_object(current_target.as_obj(), &target).unwrap_or(false))
+        .unwrap_or(true);
+
+    if should_cleanup {
+        reset_loaded_engine_state();
+        *VOICE_SESSION.lock().unwrap() = None;
+        *GLOBAL_CONTEXT.lock().unwrap() = None;
+        *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = None;
+    }
 }
 
 #[no_mangle]

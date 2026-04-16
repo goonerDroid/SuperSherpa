@@ -60,7 +60,11 @@ class AndroidRemoteModelManifestProvider(
     override suspend fun fetchManifest(): RemoteModelManifest {
         return withContext(dispatcher) {
             try {
-                fetchRemoteManifest()
+                if (manifestUrl.isBlank()) {
+                    fetchFallbackAssetManifest()
+                } else {
+                    fetchRemoteManifest()
+                }
             } catch (_: IOException) {
                 fetchFallbackAssetManifest()
             }

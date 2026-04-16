@@ -241,7 +241,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        bridge.cleanupNative()
+        bridge.cleanupNative(this)
         super.onDestroy()
     }
 

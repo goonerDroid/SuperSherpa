@@ -18,8 +18,7 @@ private val Sha256Regex = Regex("[0-9a-f]{64}")
 
 object TranscriptionModelDelivery {
     const val MODEL_ID = "parakeet-tdt-0.6b-v3-int8"
-    const val MANIFEST_URL =
-        "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c/manifest.json?download=true"
+    const val MANIFEST_URL = ""
     const val MANIFEST_ASSET_PATH = "model_delivery/manifest.json"
 
     val REQUIRED_MODEL_FILES = setOf(

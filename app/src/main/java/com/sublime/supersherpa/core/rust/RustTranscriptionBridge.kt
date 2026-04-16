@@ -15,7 +15,7 @@ class RustTranscriptionBridge {
 
     external fun initNative(context: Context, modelDirectory: String?)
 
-    external fun cleanupNative()
+    external fun cleanupNative(context: Context)
 
     external fun startRecording()
 

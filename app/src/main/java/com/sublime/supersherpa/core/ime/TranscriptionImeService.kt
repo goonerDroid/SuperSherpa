@@ -49,6 +49,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     override fun onDestroy() {
         stopListeningWaveform()
         serviceScope.cancel()
+        bridge.cleanupNative(this)
         super.onDestroy()
     }
 

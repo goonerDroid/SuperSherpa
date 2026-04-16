@@ -3,6 +3,7 @@ package com.sublime.supersherpa.feature.settings.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -81,12 +82,18 @@ fun SettingsScreen(
     ) { paddingValues ->
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues),
+                .fillMaxSize(),
         ) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 72.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .consumeWindowInsets(paddingValues),
+                contentPadding = PaddingValues(
+                    start = 20.dp,
+                    top = paddingValues.calculateTopPadding() + 16.dp,
+                    end = 20.dp,
+                    bottom = paddingValues.calculateBottomPadding() + 72.dp,
+                ),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 item {
