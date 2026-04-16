@@ -7,9 +7,10 @@ class TranscriptionRuntimeInitializer(
     private val modelDirectoryResolver: ModelDirectoryResolver,
 ) {
     fun initialize(context: Context, bridge: RustTranscriptionBridge) {
+        val resolvedModelLocation = modelDirectoryResolver.resolveModelLocation()
         bridge.initNative(
             context = context,
-            modelDirectory = modelDirectoryResolver.resolveActiveModelPathOrNull(),
+            modelDirectory = resolvedModelLocation.modelDirectory,
         )
     }
 }

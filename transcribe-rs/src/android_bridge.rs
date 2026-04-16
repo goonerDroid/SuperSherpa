@@ -18,8 +18,7 @@ static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
     Lazy::new(|| (Mutex::new(LoadState::Idle), Condvar::new()));
 
 const MODEL_DIR_NAME: &str = "parakeet-tdt-0.6b-v3-int8";
-const REQUIRED_MODEL_FILES: [&str; 5] = [
-    "config.json",
+const REQUIRED_MODEL_FILES: [&str; 4] = [
     "vocab.txt",
     "encoder-model.int8.onnx",
     "decoder_joint-model.int8.onnx",

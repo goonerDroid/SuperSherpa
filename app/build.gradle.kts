@@ -72,6 +72,7 @@ android {
 
 dependencies {
     implementation(libs.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime)
@@ -230,8 +231,8 @@ data class ModelFile(val name: String, val sha256: String)
 
 // Small metadata files stay in app/src/main/assets (always in base module)
 val appAssetFiles = listOf(
-    ModelFile("config.json", ""),
-    ModelFile("vocab.txt", ""),
+    ModelFile("config.json", "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466"),
+    ModelFile("vocab.txt", "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
 )
 
 // Large ONNX model files go into the model_assets asset pack so the base
@@ -245,7 +246,8 @@ val modelPackFiles = listOf(
         "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"),
 )
 
-val huggingFaceRepo = "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
+val huggingFaceRevision = "8f23f0c"
+val huggingFaceRepo = "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/$huggingFaceRevision"
 
 fun downloadToDir(assetsDir: File, files: List<ModelFile>) {
     assetsDir.mkdirs()

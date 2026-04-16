@@ -1,7 +1,8 @@
 package com.sublime.supersherpa.core.di
 
 import android.content.Context
-import com.sublime.supersherpa.core.ai.modeldelivery.AndroidPackagedModelAssetCopier
+import com.sublime.supersherpa.core.ai.modeldelivery.AndroidBundledModelAvailabilityChecker
+import com.sublime.supersherpa.core.ai.modeldelivery.AndroidRemoteModelManifestProvider
 import com.sublime.supersherpa.core.ai.modeldelivery.ModelDirectoryResolver
 import com.sublime.supersherpa.core.ai.modeldelivery.HttpRemoteModelArtifactDownloader
 import com.sublime.supersherpa.core.ai.modeldelivery.OtaModelDeliveryManager
@@ -11,6 +12,13 @@ import com.sublime.supersherpa.feature.transcription.data.local.SuperSherpaDatab
 import com.sublime.supersherpa.feature.transcription.domain.TranscriptHistoryStore
 
 class AppContainer(context: Context) {
+    private val modelDirectoryResolver: ModelDirectoryResolver by lazy {
+        ModelDirectoryResolver(
+            filesDir = context.filesDir,
+            bundledModelAvailabilityChecker = AndroidBundledModelAvailabilityChecker(context),
+        )
+    }
+
     val transcriptHistoryStore: TranscriptHistoryStore by lazy {
         TranscriptHistoryRepository(
             dao = SuperSherpaDatabase.getInstance(context).transcriptHistoryDao(),
@@ -19,14 +27,14 @@ class AppContainer(context: Context) {
 
     val transcriptionRuntimeInitializer: TranscriptionRuntimeInitializer by lazy {
         TranscriptionRuntimeInitializer(
-            modelDirectoryResolver = ModelDirectoryResolver(context.filesDir),
+            modelDirectoryResolver = modelDirectoryResolver,
         )
     }
 
     val otaModelDeliveryManager: OtaModelDeliveryManager by lazy {
         OtaModelDeliveryManager(
-            modelDirectoryResolver = ModelDirectoryResolver(context.filesDir),
-            packagedAssetCopier = AndroidPackagedModelAssetCopier(context),
+            modelDirectoryResolver = modelDirectoryResolver,
+            remoteModelManifestProvider = AndroidRemoteModelManifestProvider(context),
             remoteModelArtifactDownloader = HttpRemoteModelArtifactDownloader(),
         )
     }

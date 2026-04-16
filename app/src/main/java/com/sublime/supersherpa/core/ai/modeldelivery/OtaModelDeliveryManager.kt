@@ -8,7 +8,6 @@ import java.net.URL
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,54 +38,37 @@ sealed interface ModelDeliveryState {
     data class Failed(val message: String) : ModelDeliveryState
 }
 
-fun interface PackagedModelAssetCopier {
-    fun copy(assetPath: String, destination: File)
+interface RemoteModelManifestProvider {
+    suspend fun fetchManifest(): RemoteModelManifest
 }
 
 interface RemoteModelArtifactDownloader {
     suspend fun download(
-        artifact: RemoteModelArtifact,
+        file: RemoteModelFile,
+        baseUrl: String,
         destination: File,
         onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
     )
 }
 
-class AndroidPackagedModelAssetCopier(
+class AndroidRemoteModelManifestProvider(
     private val context: Context,
-) : PackagedModelAssetCopier {
-    override fun copy(assetPath: String, destination: File) {
-        destination.parentFile?.mkdirs()
-        context.assets.open(assetPath).use { input ->
-            destination.outputStream().use { output ->
-                input.copyTo(output)
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val manifestUrl: String = TranscriptionModelDelivery.MANIFEST_URL,
+    private val fallbackAssetPath: String = TranscriptionModelDelivery.MANIFEST_ASSET_PATH,
+) : RemoteModelManifestProvider {
+    override suspend fun fetchManifest(): RemoteModelManifest {
+        return withContext(dispatcher) {
+            try {
+                fetchRemoteManifest()
+            } catch (_: IOException) {
+                fetchFallbackAssetManifest()
             }
         }
     }
-}
 
-class HttpRemoteModelArtifactDownloader(
-    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : RemoteModelArtifactDownloader {
-    override suspend fun download(
-        artifact: RemoteModelArtifact,
-        destination: File,
-        onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
-    ) {
-        withContext(dispatcher) {
-            downloadVerifiedFile(artifact, destination, onProgress)
-        }
-    }
-
-    private fun downloadVerifiedFile(
-        artifact: RemoteModelArtifact,
-        destination: File,
-        onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
-    ) {
-        val tempFile = File(destination.parentFile, "${destination.name}.part")
-        destination.parentFile?.mkdirs()
-        tempFile.delete()
-
-        val connection = (URL(artifact.downloadUrl).openConnection() as HttpURLConnection).apply {
+    private fun fetchRemoteManifest(): RemoteModelManifest {
+        val connection = (URL(manifestUrl).openConnection() as HttpURLConnection).apply {
             connectTimeout = ConnectTimeoutMillis
             readTimeout = ReadTimeoutMillis
             instanceFollowRedirects = true
@@ -95,20 +77,72 @@ class HttpRemoteModelArtifactDownloader(
         try {
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
-                throw IOException("HTTP $responseCode while downloading ${artifact.fileName}")
+                throw IOException("HTTP $responseCode while downloading model manifest.")
             }
 
-            val digest = MessageDigest.getInstance("SHA-256")
+            val manifestJson = connection.inputStream.bufferedReader().use { reader ->
+                reader.readText()
+            }
+            return RemoteModelManifestParser.parse(manifestJson)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun fetchFallbackAssetManifest(): RemoteModelManifest {
+        val manifestJson = context.assets.open(fallbackAssetPath).bufferedReader().use { reader ->
+            reader.readText()
+        }
+        return RemoteModelManifestParser.parse(manifestJson)
+    }
+}
+
+class HttpRemoteModelArtifactDownloader(
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : RemoteModelArtifactDownloader {
+    override suspend fun download(
+        file: RemoteModelFile,
+        baseUrl: String,
+        destination: File,
+        onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
+    ) {
+        withContext(dispatcher) {
+            downloadVerifiedFile(file, baseUrl, destination, onProgress)
+        }
+    }
+
+    private fun downloadVerifiedFile(
+        file: RemoteModelFile,
+        baseUrl: String,
+        destination: File,
+        onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
+    ) {
+        val tempFile = File(destination.parentFile, "${destination.name}.part")
+        destination.parentFile?.mkdirs()
+        tempFile.delete()
+
+        val connection = (URL(file.resolvedDownloadUrl(baseUrl)).openConnection() as HttpURLConnection).apply {
+            connectTimeout = ConnectTimeoutMillis
+            readTimeout = ReadTimeoutMillis
+            instanceFollowRedirects = true
+        }
+
+        try {
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                throw IOException("HTTP $responseCode while downloading ${file.name}")
+            }
+
             val totalBytes = connection.contentLengthLong.takeIf { it > 0L }
             var bytesDownloaded = 0L
             onProgress(bytesDownloaded, totalBytes)
+
             connection.inputStream.use { input ->
                 tempFile.outputStream().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var read = input.read(buffer)
                     while (read >= 0) {
                         if (read > 0) {
-                            digest.update(buffer, 0, read)
                             output.write(buffer, 0, read)
                             bytesDownloaded += read
                             onProgress(bytesDownloaded, totalBytes)
@@ -118,10 +152,10 @@ class HttpRemoteModelArtifactDownloader(
                 }
             }
 
-            val actualHash = digest.digest().joinToString("") { byte -> "%02x".format(byte) }
-            if (actualHash != artifact.sha256) {
+            val actualHash = sha256(tempFile)
+            if (actualHash != file.sha256) {
                 throw IOException(
-                    "Checksum mismatch for ${artifact.fileName}: expected ${artifact.sha256}, got $actualHash",
+                    "Checksum mismatch for ${file.name}: expected ${file.sha256}, got $actualHash",
                 )
             }
 
@@ -135,9 +169,24 @@ class HttpRemoteModelArtifactDownloader(
     }
 }
 
+class AndroidBundledModelAvailabilityChecker(
+    private val context: Context,
+) : BundledModelAvailabilityChecker {
+    override fun isBundledModelAvailable(): Boolean {
+        return TranscriptionModelDelivery.REQUIRED_MODEL_FILES.all { fileName ->
+            runCatching {
+                context.assets.open(TranscriptionModelDelivery.packagedAssetPath(fileName)).use { input ->
+                    input.read()
+                }
+                true
+            }.getOrDefault(false)
+        }
+    }
+}
+
 class OtaModelDeliveryManager(
     private val modelDirectoryResolver: ModelDirectoryResolver,
-    private val packagedAssetCopier: PackagedModelAssetCopier,
+    private val remoteModelManifestProvider: RemoteModelManifestProvider,
     private val remoteModelArtifactDownloader: RemoteModelArtifactDownloader,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -152,6 +201,7 @@ class OtaModelDeliveryManager(
 
     fun refresh() {
         if (_state.value is ModelDeliveryState.Downloading) return
+        modelDirectoryResolver.invalidateCache()
         _state.value = initialState()
         _modelSource.value = currentModelSource()
     }
@@ -177,7 +227,6 @@ class OtaModelDeliveryManager(
                 _state.value = ModelDeliveryState.Installed
                 _modelSource.value = currentModelSource()
             } catch (error: Throwable) {
-                cleanupDirectory(modelDirectoryResolver.pendingModelDirectory())
                 _state.value = ModelDeliveryState.Failed(
                     message = error.message ?: "Model download failed.",
                 )
@@ -187,7 +236,7 @@ class OtaModelDeliveryManager(
     }
 
     private fun initialState(): ModelDeliveryState {
-        return if (modelDirectoryResolver.resolveActiveModelPathOrNull() != null) {
+        return if (modelDirectoryResolver.resolveModelSource() == ModelSource.Ota) {
             ModelDeliveryState.Installed
         } else {
             ModelDeliveryState.NotInstalled
@@ -199,80 +248,89 @@ class OtaModelDeliveryManager(
     }
 
     private suspend fun installModelInternal() {
-        val pendingDirectory = modelDirectoryResolver.pendingModelDirectory()
-        val activeDirectory = modelDirectoryResolver.activeModelDirectory()
-        val backupDirectory = modelDirectoryResolver.backupModelDirectory()
-        val totalFiles = TranscriptionModelDelivery.deliveryFileCount
+        _state.value = ModelDeliveryState.Downloading(
+            stepLabel = "Checking manifest",
+            completedFiles = 0,
+            totalFiles = 0,
+        )
+        val manifest = remoteModelManifestProvider.fetchManifest()
+        val pendingDirectory = modelDirectoryResolver.pendingModelDirectory(manifest.version)
+        val installedDirectory = modelDirectoryResolver.installedModelDirectory(manifest.version)
+        val backupDirectory = modelDirectoryResolver.backupModelDirectory(manifest.version)
+        val totalFiles = manifest.files.size
         var completedFiles = 0
 
         cleanupDirectory(pendingDirectory)
         cleanupDirectory(backupDirectory)
         pendingDirectory.mkdirs()
 
-        TranscriptionModelDelivery.packagedAssetFiles.forEach { fileName ->
+        try {
+            manifest.files.forEach { file ->
+                remoteModelArtifactDownloader.download(
+                    file = file,
+                    baseUrl = manifest.baseUrl,
+                    destination = File(pendingDirectory, file.name),
+                    onProgress = { bytesDownloaded, totalBytes ->
+                        _state.value = ModelDeliveryState.Downloading(
+                            stepLabel = "Downloading ${file.name}",
+                            completedFiles = completedFiles,
+                            totalFiles = totalFiles,
+                            bytesDownloaded = bytesDownloaded,
+                            totalBytes = totalBytes,
+                        )
+                    },
+                )
+                completedFiles += 1
+            }
+
             _state.value = ModelDeliveryState.Downloading(
-                stepLabel = "Preparing $fileName",
+                stepLabel = "Verifying model",
                 completedFiles = completedFiles,
                 totalFiles = totalFiles,
             )
-            packagedAssetCopier.copy(
-                assetPath = TranscriptionModelDelivery.packagedAssetPath(fileName),
-                destination = File(pendingDirectory, fileName),
+            if (!modelDirectoryResolver.hasRequiredFiles(pendingDirectory)) {
+                throw IOException("Downloaded model package is missing required files.")
+            }
+            if (!modelDirectoryResolver.verifyModelFiles(pendingDirectory, manifest.files)) {
+                throw IOException("Downloaded model package failed checksum verification.")
+            }
+
+            _state.value = ModelDeliveryState.Downloading(
+                stepLabel = "Activating model",
+                completedFiles = completedFiles,
+                totalFiles = totalFiles,
             )
-            completedFiles += 1
-        }
-
-        TranscriptionModelDelivery.remoteArtifacts.forEach { artifact ->
-            remoteModelArtifactDownloader.download(
-                artifact = artifact,
-                destination = File(pendingDirectory, artifact.fileName),
-                onProgress = { bytesDownloaded, totalBytes ->
-                    _state.value = ModelDeliveryState.Downloading(
-                        stepLabel = "Downloading ${artifact.fileName}",
-                        completedFiles = completedFiles,
-                        totalFiles = totalFiles,
-                        bytesDownloaded = bytesDownloaded,
-                        totalBytes = totalBytes,
-                    )
-                },
+            promotePendingModel(
+                pendingDirectory = pendingDirectory,
+                installedDirectory = installedDirectory,
+                backupDirectory = backupDirectory,
             )
-            completedFiles += 1
+            modelDirectoryResolver.activateModel(manifest, installedDirectory)
+        } catch (error: Throwable) {
+            cleanupDirectory(pendingDirectory)
+            cleanupDirectory(backupDirectory)
+            throw error
         }
-
-        if (!modelDirectoryResolver.hasCompleteModel(pendingDirectory)) {
-            throw IOException("Downloaded model package is incomplete.")
-        }
-
-        _state.value = ModelDeliveryState.Downloading(
-            stepLabel = "Activating model",
-            completedFiles = completedFiles,
-            totalFiles = totalFiles,
-        )
-        promotePendingModel(
-            pendingDirectory = pendingDirectory,
-            activeDirectory = activeDirectory,
-            backupDirectory = backupDirectory,
-        )
     }
 
     private fun promotePendingModel(
         pendingDirectory: File,
-        activeDirectory: File,
+        installedDirectory: File,
         backupDirectory: File,
     ) {
-        var movedActiveToBackup = false
+        var movedInstalledToBackup = false
 
         try {
-            if (activeDirectory.exists()) {
-                movePath(activeDirectory, backupDirectory)
-                movedActiveToBackup = true
+            if (installedDirectory.exists()) {
+                movePath(installedDirectory, backupDirectory, replaceExisting = true)
+                movedInstalledToBackup = true
             }
 
-            movePath(pendingDirectory, activeDirectory)
+            movePath(pendingDirectory, installedDirectory, replaceExisting = true)
             cleanupDirectory(backupDirectory)
         } catch (error: Throwable) {
-            if (movedActiveToBackup && backupDirectory.exists() && !activeDirectory.exists()) {
-                movePath(backupDirectory, activeDirectory)
+            if (movedInstalledToBackup && backupDirectory.exists() && !installedDirectory.exists()) {
+                movePath(backupDirectory, installedDirectory, replaceExisting = true)
             }
             throw error
         } finally {

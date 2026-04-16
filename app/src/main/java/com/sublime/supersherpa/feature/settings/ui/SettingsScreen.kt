@@ -165,7 +165,11 @@ private fun ModelDeliveryCard(
     }
     val description = when (state) {
         ModelDeliveryState.NotInstalled -> {
-            "Download the offline Parakeet model into app storage so future runtime initializations can use it directly."
+            if (modelSource == ModelSource.Missing) {
+                "No transcription model is available locally. Download the offline Parakeet package to restore transcription."
+            } else {
+                "Download the offline Parakeet model into app storage so future runtime initializations can use it directly."
+            }
         }
         ModelDeliveryState.Installed -> {
             "The OTA model package is stored locally and ready for the next transcription runtime initialization."
@@ -384,6 +388,7 @@ private fun SourceRow(modelSource: ModelSource) {
     val label = when (modelSource) {
         ModelSource.Ota -> "Model source: OTA"
         ModelSource.Bundled -> "Model source: Bundled"
+        ModelSource.Missing -> "Model source: Missing"
     }
     Text(
         text = label,

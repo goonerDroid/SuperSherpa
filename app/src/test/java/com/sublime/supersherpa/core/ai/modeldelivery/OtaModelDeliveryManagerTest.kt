@@ -12,133 +12,126 @@ class OtaModelDeliveryManagerTest {
     @Test
     fun installModelNow_downloadsAndActivatesModel() = runBlocking {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(filesDir)
-        val requestedAssets = mutableListOf<String>()
+        val resolver = ModelDirectoryResolver(
+            filesDir = filesDir,
+            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
+        )
+        val manifest = testManifest(version = "parakeet-v2")
         val downloadedArtifacts = mutableListOf<String>()
         val manager = OtaModelDeliveryManager(
             modelDirectoryResolver = resolver,
-            packagedAssetCopier = PackagedModelAssetCopier { assetPath, destination ->
-                requestedAssets += assetPath
-                destination.parentFile?.mkdirs()
-                destination.writeText("asset:$assetPath")
-            },
+            remoteModelManifestProvider = FakeRemoteModelManifestProvider(manifest),
             remoteModelArtifactDownloader = object : RemoteModelArtifactDownloader {
                 override suspend fun download(
-                    artifact: RemoteModelArtifact,
+                    file: RemoteModelFile,
+                    baseUrl: String,
                     destination: File,
                     onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
                 ) {
-                    downloadedArtifacts += artifact.fileName
+                    downloadedArtifacts += file.name
                     destination.parentFile?.mkdirs()
                     onProgress(256L, 1024L)
-                    destination.writeText("remote:${artifact.fileName}")
+                    destination.writeText("content:${file.name}")
                 }
             },
         )
 
         manager.installModelNow()
 
+        val installedDirectory = resolver.installedModelDirectory(manifest.version)
         assertEquals(ModelDeliveryState.Installed, manager.state.value)
         assertEquals(ModelSource.Ota, manager.modelSource.value)
-        assertEquals(
-            TranscriptionModelDelivery.packagedAssetFiles.map(TranscriptionModelDelivery::packagedAssetPath),
-            requestedAssets,
-        )
-        assertEquals(
-            TranscriptionModelDelivery.remoteArtifacts.map(RemoteModelArtifact::fileName),
-            downloadedArtifacts,
-        )
-        assertTrue(resolver.hasCompleteModel(resolver.activeModelDirectory()))
+        assertEquals(manifest.files.map(RemoteModelFile::name), downloadedArtifacts)
+        assertTrue(resolver.hasRequiredFiles(installedDirectory))
+        assertTrue(resolver.verifyModelFiles(installedDirectory, manifest.files))
+        assertEquals(manifest.version, resolver.loadRegistry()?.activeVersion)
+        assertEquals(installedDirectory.absolutePath, resolver.loadRegistry()?.activePath)
     }
 
     @Test
     fun installModelNow_preservesExistingActiveModel_whenDownloadFails() = runBlocking {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(filesDir)
-        val existingActiveDirectory = resolver.activeModelDirectory()
+        val resolver = ModelDirectoryResolver(
+            filesDir = filesDir,
+            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
+        )
+        val existingManifest = testManifest(version = "parakeet-v1")
+        val existingDirectory = resolver.installedModelDirectory(existingManifest.version)
+        writeModelFiles(existingDirectory, existingManifest)
+        resolver.activateModel(existingManifest, existingDirectory)
 
-        existingActiveDirectory.mkdirs()
-        TranscriptionModelDelivery.REQUIRED_FILES.forEach { fileName ->
-            File(existingActiveDirectory, fileName).writeText("existing:$fileName")
-        }
-
+        val nextManifest = testManifest(version = "parakeet-v2")
         val manager = OtaModelDeliveryManager(
             modelDirectoryResolver = resolver,
-            packagedAssetCopier = PackagedModelAssetCopier { assetPath, destination ->
-                destination.parentFile?.mkdirs()
-                destination.writeText("asset:$assetPath")
-            },
+            remoteModelManifestProvider = FakeRemoteModelManifestProvider(nextManifest),
             remoteModelArtifactDownloader = object : RemoteModelArtifactDownloader {
                 override suspend fun download(
-                    artifact: RemoteModelArtifact,
+                    file: RemoteModelFile,
+                    baseUrl: String,
                     destination: File,
                     onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
                 ) {
-                    if (artifact.fileName == "decoder_joint-model.int8.onnx") {
+                    if (file.name == "decoder_joint-model.int8.onnx") {
                         error("boom")
                     }
                     destination.parentFile?.mkdirs()
                     onProgress(128L, 1024L)
-                    destination.writeText("remote:${artifact.fileName}")
+                    destination.writeText("content:${file.name}")
                 }
             },
         )
 
         manager.installModelNow()
 
-        assertEquals(
-            ModelDeliveryState.Failed("boom"),
-            manager.state.value,
-        )
+        assertEquals(ModelDeliveryState.Failed("boom"), manager.state.value)
         assertEquals(ModelSource.Ota, manager.modelSource.value)
-        assertTrue(resolver.hasCompleteModel(existingActiveDirectory))
+        assertEquals(existingDirectory.absolutePath, resolver.resolveActiveModelPathOrNull())
+        assertEquals(existingManifest.version, resolver.loadRegistry()?.activeVersion)
         assertEquals(
-            "existing:decoder_joint-model.int8.onnx",
-            File(existingActiveDirectory, "decoder_joint-model.int8.onnx").readText(),
+            "content:decoder_joint-model.int8.onnx",
+            File(existingDirectory, "decoder_joint-model.int8.onnx").readText(),
         )
     }
 
     @Test
-    fun managerDefaultsToBundledSource_withoutActiveOtaModel() {
+    fun managerDefaultsToMissingSource_withoutActiveOrBundledModel() {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(filesDir)
+        val resolver = ModelDirectoryResolver(
+            filesDir = filesDir,
+            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
+        )
         val manager = OtaModelDeliveryManager(
             modelDirectoryResolver = resolver,
-            packagedAssetCopier = PackagedModelAssetCopier { _, _ -> },
-            remoteModelArtifactDownloader = object : RemoteModelArtifactDownloader {
-                override suspend fun download(
-                    artifact: RemoteModelArtifact,
-                    destination: File,
-                    onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
-                ) = Unit
-            },
+            remoteModelManifestProvider = FakeRemoteModelManifestProvider(testManifest(version = "parakeet-v1")),
+            remoteModelArtifactDownloader = NoOpRemoteModelArtifactDownloader(),
         )
 
-        assertEquals(ModelSource.Bundled, manager.modelSource.value)
+        assertEquals(ModelSource.Missing, manager.modelSource.value)
     }
 
     @Test
     fun installModelNow_reportsByteProgress_whenDownloaderProvidesIt() = runBlocking {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(filesDir)
+        val resolver = ModelDirectoryResolver(
+            filesDir = filesDir,
+            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
+        )
         var sawProgressState: ModelDeliveryState.Downloading? = null
         lateinit var manager: OtaModelDeliveryManager
         manager = OtaModelDeliveryManager(
             modelDirectoryResolver = resolver,
-            packagedAssetCopier = PackagedModelAssetCopier { assetPath, destination ->
-                destination.parentFile?.mkdirs()
-                destination.writeText("asset:$assetPath")
-            },
+            remoteModelManifestProvider = FakeRemoteModelManifestProvider(testManifest(version = "parakeet-v1")),
             remoteModelArtifactDownloader = object : RemoteModelArtifactDownloader {
                 override suspend fun download(
-                    artifact: RemoteModelArtifact,
+                    file: RemoteModelFile,
+                    baseUrl: String,
                     destination: File,
                     onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
                 ) {
                     onProgress(512L, 2048L)
                     sawProgressState = manager.state.value as? ModelDeliveryState.Downloading
                     destination.parentFile?.mkdirs()
-                    destination.writeText("remote:${artifact.fileName}")
+                    destination.writeText("content:${file.name}")
                 }
             },
         )
@@ -149,4 +142,19 @@ class OtaModelDeliveryManagerTest {
         assertEquals(512L, sawProgressState?.bytesDownloaded)
         assertEquals(2048L, sawProgressState?.totalBytes)
     }
+}
+
+private class FakeRemoteModelManifestProvider(
+    private val manifest: RemoteModelManifest,
+) : RemoteModelManifestProvider {
+    override suspend fun fetchManifest(): RemoteModelManifest = manifest
+}
+
+private class NoOpRemoteModelArtifactDownloader : RemoteModelArtifactDownloader {
+    override suspend fun download(
+        file: RemoteModelFile,
+        baseUrl: String,
+        destination: File,
+        onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit,
+    ) = Unit
 }
