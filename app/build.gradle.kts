@@ -1,5 +1,3 @@
-import java.io.FileInputStream
-import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -24,6 +22,9 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -65,9 +66,6 @@ android {
         }
     }
 
-    // Play Asset Delivery: large model files go into a separate asset pack
-    // so the base module stays under the 200 MB Play Store limit.
-    assetPacks += listOf(":model_assets")
 }
 
 dependencies {
@@ -119,21 +117,6 @@ dependencies {
     ortNative(libs.onnxruntime.android)
 }
 
-// For APK builds (assemble/install), asset packs are ignored by AGP so we
-// must include the asset-pack assets as an extra source directory.  For
-// bundle builds the asset pack module handles delivery and we must NOT add
-// the directory here (would cause duplicate-resource errors).
-val isBundle = gradle.startParameter.taskNames.any {
-    it.contains("bundle", ignoreCase = true)
-}
-if (!isBundle) {
-    android.sourceSets.getByName("main") {
-        assets.srcDirs(
-            "src/main/assets",
-            rootProject.file("model_assets/src/main/assets")
-        )
-    }
-}
 // ---------------------------------------------------------------------------
 // Task to extract ORT headers & native libs for Rust compilation
 // ---------------------------------------------------------------------------
@@ -221,109 +204,4 @@ val cargoNdkBuild by tasks.registering(Exec::class) {
 // Wire the cargo-ndk build into the Android build lifecycle
 tasks.named("preBuild") {
     dependsOn(cargoNdkBuild)
-}
-
-// ---------------------------------------------------------------------------
-// Model asset download task
-// ---------------------------------------------------------------------------
-
-data class ModelFile(val name: String, val sha256: String)
-
-// Small metadata files stay in app/src/main/assets (always in base module)
-val appAssetFiles = listOf(
-    ModelFile("config.json", "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466"),
-    ModelFile("vocab.txt", "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
-)
-
-// Large ONNX model files go into the model_assets asset pack so the base
-// module stays under the Play Store 200 MB compressed-download limit.
-val modelPackFiles = listOf(
-    ModelFile("encoder-model.int8.onnx",
-        "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09"),
-    ModelFile("decoder_joint-model.int8.onnx",
-        "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70"),
-    ModelFile("nemo128.onnx",
-        "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"),
-)
-
-val huggingFaceRevision = "8f23f0c"
-val huggingFaceRepo = "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/$huggingFaceRevision"
-
-fun downloadToDir(assetsDir: File, files: List<ModelFile>) {
-    assetsDir.mkdirs()
-    files.forEach { model ->
-        val destFile = File(assetsDir, model.name)
-        if (destFile.exists() && model.sha256.isNotEmpty()) {
-            val digest = MessageDigest.getInstance("SHA-256")
-            FileInputStream(destFile).use { fis ->
-                val buf = ByteArray(8192)
-                var read: Int
-                while (fis.read(buf).also { read = it } != -1) {
-                    digest.update(buf, 0, read)
-                }
-            }
-            val hash = digest.digest().joinToString("") { "%02x".format(it) }
-            if (hash == model.sha256) {
-                println("  ✓ ${model.name} already downloaded and verified")
-                return@forEach
-            } else {
-                println("  ✗ ${model.name} checksum mismatch, re-downloading...")
-                destFile.delete()
-            }
-        }
-
-        if (!destFile.exists()) {
-            println("  ↓ Downloading ${model.name}...")
-            val downloadUrl = "$huggingFaceRepo/${model.name}?download=true"
-            val proc = ProcessBuilder("curl", "-L", "-f", "-o", destFile.absolutePath, downloadUrl)
-                .inheritIO()
-                .start()
-            val exitCode = proc.waitFor()
-            if (exitCode != 0) {
-                throw GradleException("Failed to download ${model.name} (curl exit code $exitCode)")
-            }
-
-            if (model.sha256.isNotEmpty()) {
-                val digest = MessageDigest.getInstance("SHA-256")
-                FileInputStream(destFile).use { fis ->
-                    val buf = ByteArray(8192)
-                    var read: Int
-                    while (fis.read(buf).also { read = it } != -1) {
-                        digest.update(buf, 0, read)
-                    }
-                }
-                val hash = digest.digest().joinToString("") { "%02x".format(it) }
-                if (hash != model.sha256) {
-                    throw GradleException(
-                        "Checksum verification failed for ${model.name}:\n" +
-                                "  Expected: ${model.sha256}\n" +
-                                "  Got:      $hash"
-                    )
-                }
-                println("  ✓ ${model.name} verified")
-            }
-        }
-    }
-}
-
-val downloadModels by tasks.registering {
-    description = "Download HuggingFace Parakeet model assets"
-    group = "build"
-
-    // Small metadata -> app assets (base module)
-    val appAssetsDir = project.file("src/main/assets/parakeet-tdt-0.6b-v3-int8")
-    // Large ONNX models -> asset pack (separate install-time delivery)
-    val packAssetsDir = rootProject.file("model_assets/src/main/assets/parakeet-tdt-0.6b-v3-int8")
-
-    outputs.dir(appAssetsDir)
-    outputs.dir(packAssetsDir)
-
-    doLast {
-        downloadToDir(appAssetsDir, appAssetFiles)
-        downloadToDir(packAssetsDir, modelPackFiles)
-    }
-}
-
-tasks.named("preBuild") {
-    dependsOn(downloadModels)
 }

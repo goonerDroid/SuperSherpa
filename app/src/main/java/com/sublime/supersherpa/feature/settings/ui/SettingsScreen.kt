@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,16 +23,14 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +38,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.sublime.supersherpa.core.ai.modeldelivery.ModelDeliveryState
 import com.sublime.supersherpa.core.ai.modeldelivery.ModelSource
+import com.sublime.supersherpa.core.ai.modeldelivery.TranscriptionModelDelivery
+import com.sublime.supersherpa.ui.theme.AppCornerRadius
+import com.sublime.supersherpa.ui.theme.AppSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,12 +89,12 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .consumeWindowInsets(paddingValues),
                 contentPadding = PaddingValues(
-                    start = 20.dp,
-                    top = paddingValues.calculateTopPadding() + 16.dp,
-                    end = 20.dp,
+                    start = AppSpacing.ScreenHorizontal,
+                    top = paddingValues.calculateTopPadding() + AppSpacing.ScreenTop,
+                    end = AppSpacing.ScreenHorizontal,
                     bottom = paddingValues.calculateBottomPadding() + 72.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
             ) {
                 item {
                     AccessCard(
@@ -151,14 +151,13 @@ private fun ModelDeliveryCard(
     modelSource: ModelSource,
     onInstallModel: () -> Unit,
 ) {
-    val installed = state is ModelDeliveryState.Installed
-    val statusContainerColor = when (state) {
-        ModelDeliveryState.NotInstalled -> MaterialTheme.colorScheme.secondaryContainer
-        is ModelDeliveryState.Downloading -> MaterialTheme.colorScheme.primaryContainer
-        is ModelDeliveryState.Failed -> MaterialTheme.colorScheme.errorContainer
-        ModelDeliveryState.Installed -> MaterialTheme.colorScheme.surfaceContainerLow
+    val statusIconColor = when (state) {
+        ModelDeliveryState.Installed -> MaterialTheme.colorScheme.primary
+        ModelDeliveryState.NotInstalled -> MaterialTheme.colorScheme.onSecondaryContainer
+        is ModelDeliveryState.Downloading -> MaterialTheme.colorScheme.onPrimaryContainer
+        is ModelDeliveryState.Failed -> MaterialTheme.colorScheme.onErrorContainer
     }
-    val statusContentColor = when (state) {
+    val statusTextColor = when (state) {
         ModelDeliveryState.NotInstalled -> MaterialTheme.colorScheme.onSecondaryContainer
         is ModelDeliveryState.Downloading -> MaterialTheme.colorScheme.onPrimaryContainer
         is ModelDeliveryState.Failed -> MaterialTheme.colorScheme.onErrorContainer
@@ -172,11 +171,7 @@ private fun ModelDeliveryCard(
     }
     val description = when (state) {
         ModelDeliveryState.NotInstalled -> {
-            if (modelSource == ModelSource.Missing) {
-                "No transcription model is available locally. Download the offline Parakeet package to restore transcription."
-            } else {
-                "Download the offline Parakeet model into app storage so future runtime initializations can use it directly."
-            }
+            "No transcription model is installed yet. Download the OTA Parakeet package to restore transcription."
         }
         ModelDeliveryState.Installed -> {
             "The OTA model package is stored locally and ready for the next transcription runtime initialization."
@@ -192,70 +187,42 @@ private fun ModelDeliveryCard(
     }
     val actionEnabled = state !is ModelDeliveryState.Downloading
 
-    if (installed) {
-        ElevatedCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(AppSpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
         ) {
-            Column(
-                modifier = Modifier.padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                ModelDeliveryHeader(
-                    title = "Offline model package",
-                    description = description,
-                )
-                StatusRow(statusLabel = statusLabel)
-                SourceRow(modelSource = modelSource)
-                TextButton(onClick = onInstallModel) {
-                    Text(text = actionLabel)
-                }
+            ModelDeliveryHeader(
+                title = "Offline model package",
+                description = description,
+            )
+            SourceRow(modelSource = modelSource)
+            if (state is ModelDeliveryState.Installed) {
+                InstalledModelRow(modelName = TranscriptionModelDelivery.MODEL_ID)
             }
-        }
-    } else {
-        OutlinedCard(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.outlinedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+
+            StatusRow(
+                statusLabel = statusLabel,
+                iconTint = statusIconColor,
+                textColor = statusTextColor,
+            )
+
+            if (state is ModelDeliveryState.Downloading) {
+                DownloadProgressSection(state = state)
+            }
+
+            FilledTonalButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onInstallModel,
+                enabled = actionEnabled,
             ) {
-                ModelDeliveryHeader(
-                    title = "Offline model package",
-                    description = description,
-                )
-                SourceRow(modelSource = modelSource)
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(statusContainerColor)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        text = statusLabel,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = statusContentColor,
-                    )
-                }
-
-                if (state is ModelDeliveryState.Downloading) {
-                    DownloadProgressSection(state = state)
-                }
-
-                FilledTonalButton(
-                    onClick = onInstallModel,
-                    enabled = actionEnabled,
-                ) {
-                    Text(text = actionLabel)
-                }
+                Text(text = actionLabel)
             }
         }
     }
@@ -273,7 +240,7 @@ private fun DownloadProgressSection(
         ?.coerceIn(0f, 1f)
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
     ) {
         if (progress != null) {
             LinearProgressIndicator(
@@ -336,12 +303,12 @@ private fun ModelDeliveryHeader(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
     ) {
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(AppCornerRadius.IconLarge)
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center,
         ) {
@@ -354,7 +321,7 @@ private fun ModelDeliveryHeader(
 
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardTightGap),
         ) {
             Text(
                 text = title,
@@ -370,22 +337,26 @@ private fun ModelDeliveryHeader(
 }
 
 @Composable
-private fun StatusRow(statusLabel: String) {
+private fun StatusRow(
+    statusLabel: String,
+    iconTint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
+    textColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = Icons.Filled.CheckCircle,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = iconTint,
         )
         Text(
             modifier = Modifier.weight(1f),
             text = statusLabel,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = textColor,
         )
     }
 }
@@ -394,11 +365,19 @@ private fun StatusRow(statusLabel: String) {
 private fun SourceRow(modelSource: ModelSource) {
     val label = when (modelSource) {
         ModelSource.Ota -> "Model source: OTA"
-        ModelSource.Bundled -> "Model source: Bundled"
         ModelSource.Missing -> "Model source: Missing"
     }
     Text(
         text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun InstalledModelRow(modelName: String) {
+    Text(
+        text = "Installed model: $modelName",
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -418,135 +397,93 @@ private fun AccessCard(
     readyActionLabel: String,
     readyOnAction: () -> Unit,
 ) {
-    if (enabled) {
-        ElevatedCard(
-            modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(AppSpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
         ) {
-                Column(
-                    modifier = Modifier.padding(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = description,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(AppCornerRadius.IconLarge)
+                        .background(
+                            if (enabled) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.errorContainer
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.CheckCircle,
+                        imageVector = icon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (enabled) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        },
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.CardTightGap),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        modifier = Modifier.weight(1f),
-                        text = readyLabel,
-                        style = MaterialTheme.typography.labelLarge,
+                        text = description,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
 
-                TextButton(onClick = readyOnAction) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+                Text(
+                    modifier = Modifier.weight(1f),
+                    text = if (enabled) readyLabel else description,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (enabled) {
+                FilledTonalButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = readyOnAction,
+                ) {
                     Text(text = readyActionLabel)
                 }
-            }
-        }
-    } else {
-        OutlinedCard(
-            modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.outlinedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.errorContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = description,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        text = "Required",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                    )
-                }
-
+            } else {
                 FilledTonalButton(
+                    modifier = Modifier.fillMaxWidth(),
                     onClick = onAction,
                     enabled = actionEnabled,
                 ) {

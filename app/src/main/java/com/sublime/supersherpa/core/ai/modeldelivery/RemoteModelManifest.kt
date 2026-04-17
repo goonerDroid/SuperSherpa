@@ -27,8 +27,6 @@ object TranscriptionModelDelivery {
         "decoder_joint-model.int8.onnx",
         "nemo128.onnx",
     )
-
-    fun packagedAssetPath(fileName: String): String = "$MODEL_ID/$fileName"
 }
 
 data class RemoteModelFile(

@@ -11,10 +11,7 @@ class ModelDirectoryResolverTest {
     @Test
     fun resolveActiveModelPathOrNull_returnsActiveDirectory_whenRegistryAndChecksumsAreValid() {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
         val manifest = testManifest(version = "parakeet-v1")
         val installedDirectory = resolver.installedModelDirectory(manifest.version)
 
@@ -26,24 +23,18 @@ class ModelDirectoryResolverTest {
     }
 
     @Test
-    fun resolveModelSource_fallsBackToBundled_whenNoRegistryExists() {
+    fun resolveModelSource_returnsMissing_whenNoRegistryExists() {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { true },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
 
         assertNull(resolver.resolveActiveModelPathOrNull())
-        assertEquals(ModelSource.Bundled, resolver.resolveModelSource())
+        assertEquals(ModelSource.Missing, resolver.resolveModelSource())
     }
 
     @Test
     fun resolveModelSource_returnsMissing_whenNoValidModelExists() {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
 
         assertNull(resolver.resolveActiveModelPathOrNull())
         assertEquals(ModelSource.Missing, resolver.resolveModelSource())
@@ -52,10 +43,7 @@ class ModelDirectoryResolverTest {
     @Test
     fun resolveModelSource_clearsRegistry_whenInstalledModelIsCorrupt() {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { true },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
         val manifest = testManifest(version = "parakeet-v1")
         val installedDirectory = resolver.installedModelDirectory(manifest.version)
 
@@ -66,7 +54,7 @@ class ModelDirectoryResolverTest {
         resolver.invalidateCache()
 
         assertNull(resolver.resolveActiveModelPathOrNull())
-        assertEquals(ModelSource.Bundled, resolver.resolveModelSource())
+        assertEquals(ModelSource.Missing, resolver.resolveModelSource())
         assertFalse(resolver.registryFile().exists())
     }
 }

@@ -173,21 +173,6 @@ class HttpRemoteModelArtifactDownloader(
     }
 }
 
-class AndroidBundledModelAvailabilityChecker(
-    private val context: Context,
-) : BundledModelAvailabilityChecker {
-    override fun isBundledModelAvailable(): Boolean {
-        return TranscriptionModelDelivery.REQUIRED_MODEL_FILES.all { fileName ->
-            runCatching {
-                context.assets.open(TranscriptionModelDelivery.packagedAssetPath(fileName)).use { input ->
-                    input.read()
-                }
-                true
-            }.getOrDefault(false)
-        }
-    }
-}
-
 class OtaModelDeliveryManager(
     private val modelDirectoryResolver: ModelDirectoryResolver,
     private val remoteModelManifestProvider: RemoteModelManifestProvider,

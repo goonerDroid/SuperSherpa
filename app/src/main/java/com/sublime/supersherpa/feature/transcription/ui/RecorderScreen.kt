@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CheckCircle
@@ -57,11 +56,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import com.sublime.supersherpa.core.ai.modeldelivery.ModelDeliveryState
+import com.sublime.supersherpa.core.ai.modeldelivery.ModelSource
 import com.sublime.supersherpa.feature.transcription.presentation.VoicePhase
 import com.sublime.supersherpa.feature.transcription.presentation.VoiceState
 import com.sublime.supersherpa.feature.transcription.presentation.errorMessage
 import com.sublime.supersherpa.feature.transcription.presentation.phase
 import com.sublime.supersherpa.feature.transcription.presentation.transcript
+import com.sublime.supersherpa.ui.theme.AppCornerRadius
+import com.sublime.supersherpa.ui.theme.AppSpacing
 import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.pow
@@ -73,12 +76,15 @@ internal fun RecorderScreen(
     voiceState: VoiceState,
     hasMicPermission: Boolean,
     canRequestMicPermission: Boolean,
+    modelDeliveryState: ModelDeliveryState,
+    modelSource: ModelSource,
     onRequestMicPermission: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onPrimaryAction: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit,
     onCopyText: (String) -> Unit,
+    onInstallModel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     androidx.compose.material3.Scaffold(
@@ -121,18 +127,21 @@ internal fun RecorderScreen(
                 .fillMaxSize()
                 .consumeWindowInsets(paddingValues),
             contentPadding = PaddingValues(
-                start = 20.dp,
-                top = paddingValues.calculateTopPadding() + 16.dp,
-                end = 20.dp,
+                start = AppSpacing.ScreenHorizontal,
+                top = paddingValues.calculateTopPadding() + AppSpacing.ScreenTop,
+                end = AppSpacing.ScreenHorizontal,
                 bottom = paddingValues.calculateBottomPadding() + 112.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
         ) {
-            item {
-                VoiceOverviewCard(
-                    voiceState = voiceState,
-                    onCopyText = onCopyText,
-                )
+            if (modelSource == ModelSource.Missing || modelDeliveryState != ModelDeliveryState.Installed) {
+                item {
+                    ModelDownloadCard(
+                        modelDeliveryState = modelDeliveryState,
+                        modelSource = modelSource,
+                        onInstallModel = onInstallModel,
+                    )
+                }
             }
 
             if (!hasMicPermission) {
@@ -146,6 +155,14 @@ internal fun RecorderScreen(
             }
 
             item {
+                VoiceOverviewCard(
+                    voiceState = voiceState,
+                    modelSource = modelSource,
+                    onCopyText = onCopyText,
+                )
+            }
+
+            item {
                 HistoryActionCard(onOpenHistory = onOpenHistory)
             }
         }
@@ -155,6 +172,7 @@ internal fun RecorderScreen(
 @Composable
 private fun VoiceOverviewCard(
     voiceState: VoiceState,
+    modelSource: ModelSource,
     onCopyText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -175,22 +193,23 @@ private fun VoiceOverviewCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(AppSpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
             ) {
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(AppCornerRadius.IconLarge)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -202,7 +221,7 @@ private fun VoiceOverviewCard(
                 }
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.CardTightGap),
                 ) {
                     Text(
                         text = statusModel.title,
@@ -219,7 +238,7 @@ private fun VoiceOverviewCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp),
+                    .height(AppSpacing.CardTightGap),
             ) {
                 if (phase == VoicePhase.Processing) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -264,24 +283,30 @@ private fun VoiceOverviewCard(
                 }
             }
 
-            val displayTranscript = remember(voiceState) {
-                voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
+            val displayTranscript = remember(voiceState, modelSource) {
+                when {
+                    phase == VoicePhase.Error && modelSource == ModelSource.Missing -> {
+                        "Model not available yet. Download it below to continue."
+                    }
+                    else -> voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
+                }
             }
             val transcriptScrollState = rememberScrollState()
-            val transcriptTextColor = if (phase == VoicePhase.Error) {
+            val transcriptTextColor = if (phase == VoicePhase.Error && modelSource != ModelSource.Missing) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurface
             }
 
-            OutlinedCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(232.dp),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            ) {
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(232.dp),
+        shape = AppCornerRadius.Card,
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -290,10 +315,10 @@ private fun VoiceOverviewCard(
                             .fillMaxSize()
                             .verticalScroll(transcriptScrollState)
                             .padding(
-                                start = 16.dp,
-                                top = 16.dp,
-                                end = 16.dp,
-                                bottom = if (displayTranscript.isBlank()) 16.dp else 72.dp,
+                                start = AppSpacing.CardPaddingCompact,
+                                top = AppSpacing.CardPaddingCompact,
+                                end = AppSpacing.CardPaddingCompact,
+                                bottom = if (displayTranscript.isBlank()) AppSpacing.CardPaddingCompact else 72.dp,
                             ),
                     ) {
                         if (displayTranscript.isBlank()) {
@@ -328,8 +353,8 @@ private fun VoiceOverviewCard(
                         ) {
                             IconButton(
                                 modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(end = 16.dp, bottom = 12.dp)
+                                .align(Alignment.BottomEnd)
+                                    .padding(end = AppSpacing.CardPaddingCompact, bottom = AppSpacing.CardSubItemGap)
                                     .size(48.dp),
                                 onClick = { onCopyText(displayTranscript) },
                             ) {
@@ -347,6 +372,171 @@ private fun VoiceOverviewCard(
 }
 
 @Composable
+private fun ModelDownloadCard(
+    modelDeliveryState: ModelDeliveryState,
+    modelSource: ModelSource,
+    onInstallModel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val statusLabel = when (modelDeliveryState) {
+        ModelDeliveryState.NotInstalled -> "Not downloaded"
+        ModelDeliveryState.Installed -> "Installed"
+        is ModelDeliveryState.Downloading -> "Downloading ${modelDeliveryState.completedFiles} of ${modelDeliveryState.totalFiles}"
+        is ModelDeliveryState.Failed -> "Download failed"
+    }
+    val description = when (modelDeliveryState) {
+        ModelDeliveryState.NotInstalled -> "No transcription model is installed yet. Download the OTA Parakeet package to restore transcription."
+        ModelDeliveryState.Installed -> "The OTA model package is stored locally and ready for transcription."
+        is ModelDeliveryState.Downloading -> modelDeliveryState.stepLabel
+        is ModelDeliveryState.Failed -> modelDeliveryState.message
+    }
+    val actionLabel = when (modelDeliveryState) {
+        ModelDeliveryState.NotInstalled -> "Download model"
+        ModelDeliveryState.Installed -> "Reinstall model"
+        is ModelDeliveryState.Downloading -> "Downloading..."
+        is ModelDeliveryState.Failed -> "Retry download"
+    }
+    val progress = (modelDeliveryState as? ModelDeliveryState.Downloading)
+        ?.totalBytes
+        ?.takeIf { it > 0L }
+        ?.let { totalBytes ->
+            (modelDeliveryState.bytesDownloaded ?: 0L).toFloat() / totalBytes.toFloat()
+        }
+        ?.coerceIn(0f, 1f)
+
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(AppSpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(AppCornerRadius.IconLarge)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Autorenew,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.CardTightGap),
+                ) {
+                    Text(
+                        text = "Offline model package",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Text(
+                text = "Model source: ${if (modelSource == ModelSource.Ota) "OTA" else "Missing"}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            if (modelDeliveryState is ModelDeliveryState.Downloading) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
+                ) {
+                    if (progress != null) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    val sizeLabel = formatDownloadSize(
+                        downloadedBytes = modelDeliveryState.bytesDownloaded,
+                        totalBytes = modelDeliveryState.totalBytes,
+                    )
+                    if (sizeLabel != null) {
+                        Text(
+                            text = sizeLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(AppCornerRadius.Pill)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+
+            FilledTonalButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onInstallModel,
+                enabled = modelDeliveryState !is ModelDeliveryState.Downloading,
+            ) {
+                Text(text = actionLabel)
+            }
+        }
+    }
+}
+
+private fun formatDownloadSize(
+    downloadedBytes: Long?,
+    totalBytes: Long?,
+): String? {
+    val downloadedLabel = downloadedBytes?.let(::formatBytes)
+    val totalLabel = totalBytes?.let(::formatBytes)
+
+    return when {
+        downloadedLabel != null && totalLabel != null -> "$downloadedLabel / $totalLabel"
+        downloadedLabel != null -> downloadedLabel
+        else -> null
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+
+    val units = listOf("KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var unitIndex = -1
+
+    while (value >= 1024.0 && unitIndex < units.lastIndex) {
+        value /= 1024.0
+        unitIndex += 1
+    }
+
+    return String.format("%.1f %s", value, units[unitIndex])
+}
+
+@Composable
 private fun PermissionCard(
     canRequestMicPermission: Boolean,
     onRequestMicPermission: () -> Unit,
@@ -361,34 +551,35 @@ private fun PermissionCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(AppSpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
             ) {
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.12f)),
+                        .clip(AppCornerRadius.IconLarge)
+                        .background(MaterialTheme.colorScheme.errorContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Filled.MicOff,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
                     )
                 }
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.CardTightGap),
                 ) {
                     Text(
                         text = "Microphone permission required",
@@ -403,6 +594,7 @@ private fun PermissionCard(
             }
 
             FilledTonalButton(
+                modifier = Modifier.fillMaxWidth(),
                 onClick = if (canRequestMicPermission) onRequestMicPermission else onOpenAppSettings,
             ) {
                 Text(text = actionLabel)
@@ -418,13 +610,14 @@ private fun HistoryActionCard(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(AppSpacing.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
         ) {
             Text(
                 text = "History",
@@ -435,12 +628,15 @@ private fun HistoryActionCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FilledTonalButton(onClick = onOpenHistory) {
+            FilledTonalButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onOpenHistory,
+            ) {
                 Icon(
                     imageVector = Icons.Filled.History,
                     contentDescription = null,
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(AppSpacing.CardSubItemGap))
                 Text(text = "Open history")
             }
         }
@@ -507,9 +703,16 @@ private fun VoiceState.statusModel(): VoiceStatusModel =
             icon = Icons.Filled.CheckCircle,
         )
 
-        is VoiceState.Error -> VoiceStatusModel(
-            title = "Error",
-            subtitle = errorMessage.ifBlank { "Transcription failed." },
-            icon = Icons.Outlined.ErrorOutline,
-        )
+        is VoiceState.Error -> {
+            val isModelMissing = errorMessage.contains("model not available yet", ignoreCase = true)
+            VoiceStatusModel(
+                title = if (isModelMissing) "Model not available" else "Error",
+                subtitle = if (isModelMissing) {
+                    "Download the model below to start transcription."
+                } else {
+                    errorMessage.ifBlank { "Transcription failed." }
+                },
+                icon = Icons.Outlined.ErrorOutline,
+            )
+        }
     }

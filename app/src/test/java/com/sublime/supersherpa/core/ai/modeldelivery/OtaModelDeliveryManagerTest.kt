@@ -12,10 +12,7 @@ class OtaModelDeliveryManagerTest {
     @Test
     fun installModelNow_downloadsAndActivatesModel() = runBlocking {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
         val manifest = testManifest(version = "parakeet-v2")
         val downloadedArtifacts = mutableListOf<String>()
         val manager = OtaModelDeliveryManager(
@@ -51,10 +48,7 @@ class OtaModelDeliveryManagerTest {
     @Test
     fun installModelNow_preservesExistingActiveModel_whenDownloadFails() = runBlocking {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
         val existingManifest = testManifest(version = "parakeet-v1")
         val existingDirectory = resolver.installedModelDirectory(existingManifest.version)
         writeModelFiles(existingDirectory, existingManifest)
@@ -94,12 +88,9 @@ class OtaModelDeliveryManagerTest {
     }
 
     @Test
-    fun managerDefaultsToMissingSource_withoutActiveOrBundledModel() {
+    fun managerDefaultsToMissingSource_withoutActiveModel() {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
         val manager = OtaModelDeliveryManager(
             modelDirectoryResolver = resolver,
             remoteModelManifestProvider = FakeRemoteModelManifestProvider(testManifest(version = "parakeet-v1")),
@@ -112,10 +103,7 @@ class OtaModelDeliveryManagerTest {
     @Test
     fun installModelNow_reportsByteProgress_whenDownloaderProvidesIt() = runBlocking {
         val filesDir = createTempDirectory().toFile()
-        val resolver = ModelDirectoryResolver(
-            filesDir = filesDir,
-            bundledModelAvailabilityChecker = BundledModelAvailabilityChecker { false },
-        )
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
         var sawProgressState: ModelDeliveryState.Downloading? = null
         lateinit var manager: OtaModelDeliveryManager
         manager = OtaModelDeliveryManager(

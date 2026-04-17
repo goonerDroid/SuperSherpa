@@ -41,6 +41,7 @@ import com.sublime.supersherpa.feature.transcription.presentation.AppScreen
 import com.sublime.supersherpa.feature.transcription.presentation.TranscriptionViewModel
 import com.sublime.supersherpa.feature.transcription.presentation.TranscriptionViewModelFactory
 import com.sublime.supersherpa.feature.transcription.presentation.VoiceState
+import com.sublime.supersherpa.feature.transcription.presentation.errorMessage
 import com.sublime.supersherpa.feature.transcription.ui.TranscriptionScreen
 import com.sublime.supersherpa.ui.animation.animatedScreenTransition
 import androidx.compose.material3.MaterialTheme
@@ -127,6 +128,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            LaunchedEffect(modelSource) {
+                if (
+                    modelSource == com.sublime.supersherpa.core.ai.modeldelivery.ModelSource.Ota &&
+                    voiceState is VoiceState.Error &&
+                    voiceState.errorMessage.orEmpty().contains("model not available yet", ignoreCase = true)
+                ) {
+                    transcriptionViewModel.reset()
+                }
+            }
+
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
@@ -183,7 +194,11 @@ class MainActivity : ComponentActivity() {
                                 openAppSettings()
                             },
                             onPrimaryAction = {
-                                if (!hasMicPermission) {
+                                if (modelSource == com.sublime.supersherpa.core.ai.modeldelivery.ModelSource.Missing) {
+                                    transcriptionViewModel.setError(
+                                        "Model not available yet. Download it above, to continue.",
+                                    )
+                                } else if (!hasMicPermission) {
                                     if (canRequestMicPermission) {
                                         hasRequestedMicPermission = true
                                         permissionPrefs.edit {

@@ -22,3 +22,16 @@ internal fun parseNativeTranscriptionMessage(message: String): NativeTranscripti
         message == "Canceled" -> NativeTranscriptionMessage.Canceled
         else -> NativeTranscriptionMessage.Transcript(message.trim())
     }
+
+internal fun normalizeNativeErrorMessage(message: String): String {
+    val normalized = message.trim()
+    return if (
+        normalized.contains("onnx runtime error", ignoreCase = true) ||
+        normalized.contains("does not exist", ignoreCase = true) ||
+        normalized.contains("model error", ignoreCase = true)
+    ) {
+        "Model not available yet. Download it below to continue."
+    } else {
+        normalized.ifBlank { "Transcription failed." }
+    }
+}

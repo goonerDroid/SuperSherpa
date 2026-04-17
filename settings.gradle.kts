@@ -25,4 +25,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "SuperSherpa"
 include(":app")
-include(":model_assets")

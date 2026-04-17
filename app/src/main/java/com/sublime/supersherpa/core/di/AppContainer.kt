@@ -1,7 +1,6 @@
 package com.sublime.supersherpa.core.di
 
 import android.content.Context
-import com.sublime.supersherpa.core.ai.modeldelivery.AndroidBundledModelAvailabilityChecker
 import com.sublime.supersherpa.core.ai.modeldelivery.AndroidRemoteModelManifestProvider
 import com.sublime.supersherpa.core.ai.modeldelivery.ModelDirectoryResolver
 import com.sublime.supersherpa.core.ai.modeldelivery.HttpRemoteModelArtifactDownloader
@@ -15,7 +14,6 @@ class AppContainer(context: Context) {
     private val modelDirectoryResolver: ModelDirectoryResolver by lazy {
         ModelDirectoryResolver(
             filesDir = context.filesDir,
-            bundledModelAvailabilityChecker = AndroidBundledModelAvailabilityChecker(context),
         )
     }
 

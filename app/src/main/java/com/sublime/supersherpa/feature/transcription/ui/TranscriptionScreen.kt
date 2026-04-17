@@ -37,12 +37,15 @@ fun TranscriptionScreen(
             voiceState = voiceState,
             hasMicPermission = hasMicPermission,
             canRequestMicPermission = canRequestMicPermission,
+            modelDeliveryState = modelDeliveryState,
+            modelSource = modelSource,
             onRequestMicPermission = onRequestMicPermission,
             onOpenAppSettings = onOpenAppSettings,
             onPrimaryAction = onPrimaryAction,
             onOpenSettings = { onNavigate(AppScreen.Settings) },
             onOpenHistory = { onNavigate(AppScreen.History) },
             onCopyText = onCopyText,
+            onInstallModel = onInstallModel,
             modifier = modifier.fillMaxSize(),
         )
         AppScreen.History -> HistoryScreen(

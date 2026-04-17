@@ -6,6 +6,7 @@ import com.sublime.supersherpa.feature.transcription.domain.NativeTranscriptionM
 import com.sublime.supersherpa.feature.transcription.domain.TranscriptHistoryStore
 import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
 import com.sublime.supersherpa.feature.transcription.domain.parseNativeTranscriptionMessage
+import com.sublime.supersherpa.feature.transcription.domain.normalizeNativeErrorMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,7 +62,7 @@ class TranscriptionViewModel(
         when (val event = parseNativeTranscriptionMessage(message)) {
             is NativeTranscriptionMessage.Error -> {
                 setError(
-                    event.message,
+                    normalizeNativeErrorMessage(event.message),
                 )
             }
             NativeTranscriptionMessage.Listening -> {

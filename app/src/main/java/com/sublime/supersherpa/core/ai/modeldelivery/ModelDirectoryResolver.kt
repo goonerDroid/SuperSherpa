@@ -24,17 +24,11 @@ data class ResolvedModelLocation(
 
 enum class ModelSource {
     Ota,
-    Bundled,
     Missing,
-}
-
-fun interface BundledModelAvailabilityChecker {
-    fun isBundledModelAvailable(): Boolean
 }
 
 class ModelDirectoryResolver(
     filesDir: File,
-    private val bundledModelAvailabilityChecker: BundledModelAvailabilityChecker = BundledModelAvailabilityChecker { true },
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val modelsRoot = File(filesDir, "models")
@@ -175,11 +169,7 @@ class ModelDirectoryResolver(
     }
 
     private fun fallbackModelLocation(): ResolvedModelLocation {
-        return if (bundledModelAvailabilityChecker.isBundledModelAvailable()) {
-            ResolvedModelLocation(source = ModelSource.Bundled)
-        } else {
-            ResolvedModelLocation(source = ModelSource.Missing)
-        }
+        return ResolvedModelLocation(source = ModelSource.Missing)
     }
 
     private fun clearRegistry() {

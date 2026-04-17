@@ -26,7 +26,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Card
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +47,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
+import com.sublime.supersherpa.ui.theme.AppCornerRadius
+import com.sublime.supersherpa.ui.theme.AppSpacing
 import java.text.DateFormat
 import java.util.Date
 
@@ -158,21 +160,22 @@ internal fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = AppSpacing.ScreenHorizontal),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                ElevatedCard(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        .padding(top = AppSpacing.ScreenTop),
+                    shape = AppCornerRadius.Card,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     ),
                 ) {
                     Row(
-                        modifier = Modifier.padding(20.dp),
+                        modifier = Modifier.padding(AppSpacing.CardPadding),
                         verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardContentGap),
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.MicNone,
@@ -182,7 +185,7 @@ internal fun HistoryScreen(
                         )
                         Column(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
                         ) {
                             Text(
                                 text = "No transcription available yet",
@@ -193,7 +196,10 @@ internal fun HistoryScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            FilledTonalButton(onClick = onClose) {
+                            FilledTonalButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = onClose,
+                            ) {
                                 Text(text = "Back to recorder")
                             }
                         }
@@ -205,8 +211,13 @@ internal fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
-                contentPadding = PaddingValues(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(
+                    start = AppSpacing.ScreenHorizontal,
+                    top = AppSpacing.ScreenTop,
+                    end = AppSpacing.ScreenHorizontal,
+                    bottom = AppSpacing.ScreenBottom,
+                ),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
             ) {
                 items(
                     items = history,
@@ -289,11 +300,12 @@ private fun HistoryItemCard(
 
     OutlinedCard(
         modifier = modifier.fillMaxWidth(),
+        shape = AppCornerRadius.Card,
         colors = CardDefaults.outlinedCardColors(
             containerColor = if (isSelected) {
                 MaterialTheme.colorScheme.secondaryContainer
             } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                MaterialTheme.colorScheme.surfaceContainer
             },
         ),
     ) {
@@ -309,9 +321,9 @@ private fun HistoryItemCard(
                     },
                     onLongClick = onEnterSelectionMode,
                 )
-                .padding(horizontal = 12.dp, vertical = 16.dp),
+                .padding(horizontal = AppSpacing.CardItemGap, vertical = AppSpacing.CardPaddingCompact),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.CardItemGap),
         ) {
             if (inSelectionMode) {
                 Checkbox(
@@ -321,7 +333,7 @@ private fun HistoryItemCard(
             }
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
             ) {
                 Text(
                     text = item.text,
