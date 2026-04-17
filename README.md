@@ -1,33 +1,93 @@
 # SuperSherpa
 
-SuperSherpa is an Android offline speech-to-text app built with Kotlin, Jetpack Compose, and a Rust native transcription core.
+SuperSherpa is an Android speech-to-text prototype built with Kotlin, Jetpack Compose, and a Rust native transcription core. The long-term product direction is an offline floating mic experience, but the repository's current app build is centered on a recorder flow plus a custom keyboard integration.
 
-## Current App State
+## Current State
 
-Implemented now:
+What is implemented today:
 
-- Offline transcription pipeline via JNI into `transcribe-rs`
-- Recorder screen with live voice phases (`Idle`, `Listening`, `Processing`, `Result`, `Error`)
-- Copy-to-clipboard from the recorder and history screens
-- Local transcript history persisted with Room
-- Settings screen for microphone permission + IME setup
-- Custom IME (`TranscriptionImeService`) with voice bar start/stop/paste flow
-- Material 3 Compose UI with screen transitions
+- Compose app with three main screens: recorder, history, and settings
+- JNI bridge into `transcribe-rs`, which owns microphone capture and transcription
+- Live recorder states in the UI: `Idle`, `Listening`, `Processing`, `Result`, and `Error`
+- Copy-to-clipboard from the recorder result and saved history
+- Local transcript history stored with Room
+- Custom IME (`TranscriptionImeService`) with start, stop, transcribe, and paste-back behavior
+- OTA model install flow for the pinned `parakeet-tdt-0.6b-v3-int8` package
+- Rust native library packaged into the Android app for `arm64-v8a`
 
-Not implemented yet:
+What is not implemented yet:
 
-- Floating overlay service (`VoiceOverlayService`) is still planned and not active in the current app build
+- Floating overlay bubble/service
+- Foreground overlay microphone flow outside the app/IME experience
+- Manifest/service wiring for `SYSTEM_ALERT_WINDOW`-based overlay behavior
 
-## Architecture Snapshot
+## How It Works
 
-- Android app: Kotlin, Compose, MVVM-style presentation state
-- Native layer: Rust (`transcribe-rs`) loaded as `libtranscribe_rs.so`
-- Native bridge: `RustTranscriptionBridge`
-- Persistence: Room (`TranscriptHistoryRepository`)
+Current runtime flow:
 
-Pipeline today:
+`Mic -> Rust native layer -> transcription/status callbacks -> ViewModel/UI state -> Compose screens or IME`
 
-`Mic -> Rust native recording/inference -> status + transcript callbacks -> ViewModel state -> Compose UI`
+Key pieces:
+
+- `app/`: Android UI, state, permissions, history, IME, and model delivery
+- `transcribe-rs/`: Rust audio/transcription engine and Android bridge
+- `app/src/main/jniLibs/arm64-v8a/`: packaged native `.so` files
+- `app/src/main/assets/model_delivery/manifest.json`: pinned model manifest used by the OTA installer
+
+One important detail: transcription is local after a model is installed, but the current app includes `INTERNET` because model download is handled in-app when the model is missing.
+
+## Android App Snapshot
+
+- Package: `com.sublime.supersherpa`
+- App name in the current build: `SuperSherpa`
+- Min SDK: 26
+- Target SDK: 36
+- UI stack: Jetpack Compose + Material 3
+- Persistence: Room
+- Native runtime: Rust + ONNX Runtime Android
+
+## Permissions In The Current Manifest
+
+- `android.permission.RECORD_AUDIO`
+- `android.permission.FOREGROUND_SERVICE`
+- `android.permission.FOREGROUND_SERVICE_MICROPHONE`
+- `android.permission.INTERNET`
+
+`SYSTEM_ALERT_WINDOW` is not currently declared because the overlay service is still not present in the app.
+
+## Build Notes
+
+The Android build triggers a Rust native build from `transcribe-rs/` before `preBuild`, so local builds need the usual Android toolchain plus Rust tooling available for `cargo ndk`.
+
+Build the debug app:
+
+```bash
+./gradlew assembleDebug
+```
+
+Run JVM tests:
+
+```bash
+./gradlew testDebugUnitTest
+```
+
+Run instrumentation tests:
+
+```bash
+./gradlew connectedDebugAndroidTest
+```
+
+Run lint:
+
+```bash
+./gradlew lintDebug
+```
+
+## Tests Present In The Repo
+
+- JVM tests for `TranscriptionViewModel`, `VoiceState`, transcript history, and OTA model delivery
+- Basic Android instrumentation scaffold under `app/src/androidTest/`
+- Rust tests under `transcribe-rs/tests/`
 
 ## Screenshots
 
@@ -50,42 +110,6 @@ Pipeline today:
   <img src="screenshots/dark/keyboard_dark.png" alt="Keyboard (Dark)" width="19%" />
   <img src="screenshots/dark/keyboard_dark_output.png" alt="Keyboard Output (Dark)" width="19%" />
 </p>
-
-## Permissions
-
-Declared in `AndroidManifest.xml`:
-
-- `android.permission.RECORD_AUDIO`
-- `android.permission.FOREGROUND_SERVICE`
-- `android.permission.FOREGROUND_SERVICE_MICROPHONE`
-- `android.permission.SYSTEM_ALERT_WINDOW`
-
-## Build
-
-```bash
-./gradlew assembleDebug
-```
-
-## Tests
-
-```bash
-./gradlew testDebugUnitTest
-```
-
-```bash
-./gradlew connectedDebugAndroidTest
-```
-
-```bash
-./gradlew lintDebug
-```
-
-## Project Layout (Current)
-
-- `app/` Android client (Compose UI, ViewModel, Room, IME service)
-- `transcribe-rs/` Rust transcription core + Android bridge
-- `model_assets/` large model asset pack module
-- `screenshots/` README screenshots (light + dark)
 
 ## License
 
