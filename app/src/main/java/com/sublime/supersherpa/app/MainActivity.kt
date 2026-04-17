@@ -45,6 +45,7 @@ import com.sublime.supersherpa.feature.transcription.presentation.errorMessage
 import com.sublime.supersherpa.feature.transcription.ui.TranscriptionScreen
 import com.sublime.supersherpa.ui.animation.animatedScreenTransition
 import androidx.compose.material3.MaterialTheme
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelSource
 import com.sublime.supersherpa.ui.theme.SuperSherpaTheme
 import kotlinx.coroutines.launch
 
@@ -69,7 +70,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        transcriptionRuntimeInitializer.initialize(this, bridge)
+        initializeTranscriptionRuntime()
         val permissionPrefs = getSharedPreferences("permission_state", MODE_PRIVATE)
 
         setContent {
@@ -129,19 +130,21 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(modelSource) {
-                if (
-                    modelSource == com.sublime.supersherpa.core.ai.modeldelivery.ModelSource.Ota &&
-                    voiceState is VoiceState.Error &&
-                    voiceState.errorMessage.orEmpty().contains("model not available yet", ignoreCase = true)
-                ) {
-                    transcriptionViewModel.reset()
+                if (modelSource == ModelSource.Ota) {
+                    initializeTranscriptionRuntime()
+                    if (
+                        voiceState is VoiceState.Error &&
+                        voiceState.errorMessage.orEmpty().contains("model not available yet", ignoreCase = true)
+                    ) {
+                        transcriptionViewModel.reset()
+                    }
                 }
             }
 
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
-                        transcriptionRuntimeInitializer.initialize(this@MainActivity, bridge)
+                        initializeTranscriptionRuntime()
                         otaModelDeliveryManager.refresh()
                         hasMicPermission = ContextCompat.checkSelfPermission(
                             this@MainActivity,
@@ -194,7 +197,7 @@ class MainActivity : ComponentActivity() {
                                 openAppSettings()
                             },
                             onPrimaryAction = {
-                                if (modelSource == com.sublime.supersherpa.core.ai.modeldelivery.ModelSource.Missing) {
+                                if (modelSource == ModelSource.Missing) {
                                     transcriptionViewModel.setError(
                                         "Model not available yet. Download it above, to continue.",
                                     )
@@ -217,6 +220,7 @@ class MainActivity : ComponentActivity() {
                                         is VoiceState.Result,
                                         is VoiceState.Error,
                                         -> {
+                                            initializeTranscriptionRuntime()
                                             transcriptionViewModel.setListening()
                                             bridge.startRecording()
                                         }
@@ -298,5 +302,9 @@ class MainActivity : ComponentActivity() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         )
+    }
+
+    private fun initializeTranscriptionRuntime() {
+        transcriptionRuntimeInitializer.initialize(this, bridge)
     }
 }

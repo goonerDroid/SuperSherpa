@@ -4,8 +4,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.sublime.supersherpa.core.ai.modeldelivery.ModelDeliveryState
-import com.sublime.supersherpa.core.ai.modeldelivery.ModelSource
+import com.sublime.supersherpa.core.ai.modeldelivery.state.ModelDeliveryState
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelSource
 import com.sublime.supersherpa.feature.settings.ui.SettingsScreen
 import com.sublime.supersherpa.feature.transcription.domain.TranscriptionHistoryItem
 import com.sublime.supersherpa.feature.transcription.presentation.AppScreen

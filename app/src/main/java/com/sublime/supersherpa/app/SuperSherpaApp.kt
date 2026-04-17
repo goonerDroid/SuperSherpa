@@ -8,7 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 
 class SuperSherpaApp : Application() {
-    val appContainer by lazy {
+    val appContainer by lazy(LazyThreadSafetyMode.NONE) {
         AppContainer(this)
     }
 

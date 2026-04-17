@@ -1,5 +1,8 @@
-package com.sublime.supersherpa.core.ai.modeldelivery
+package com.sublime.supersherpa.core.ai.modeldelivery.model
 
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelFile
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelManifest
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.TranscriptionModelDelivery
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json

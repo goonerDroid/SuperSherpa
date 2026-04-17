@@ -1,5 +1,6 @@
 package com.sublime.supersherpa.core.ai.modeldelivery
 
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelManifestParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test

@@ -1,5 +1,7 @@
 package com.sublime.supersherpa.core.ai.modeldelivery
 
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelDirectoryResolver
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelSource
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals

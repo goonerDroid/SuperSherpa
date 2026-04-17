@@ -36,9 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.sublime.supersherpa.core.ai.modeldelivery.ModelDeliveryState
-import com.sublime.supersherpa.core.ai.modeldelivery.ModelSource
-import com.sublime.supersherpa.core.ai.modeldelivery.TranscriptionModelDelivery
+import com.sublime.supersherpa.core.ai.modeldelivery.state.ModelDeliveryState
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelSource
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.TranscriptionModelDelivery
+import com.sublime.supersherpa.core.ai.modeldelivery.ui.modelSourceLabel
 import com.sublime.supersherpa.ui.theme.AppCornerRadius
 import com.sublime.supersherpa.ui.theme.AppSpacing
 
@@ -202,7 +203,10 @@ private fun ModelDeliveryCard(
                 title = "Offline model package",
                 description = description,
             )
-            SourceRow(modelSource = modelSource)
+            SourceRow(
+                modelSource = modelSource,
+                modelDeliveryState = state,
+            )
             if (state is ModelDeliveryState.Installed) {
                 InstalledModelRow(modelName = TranscriptionModelDelivery.MODEL_ID)
             }
@@ -362,11 +366,14 @@ private fun StatusRow(
 }
 
 @Composable
-private fun SourceRow(modelSource: ModelSource) {
-    val label = when (modelSource) {
-        ModelSource.Ota -> "Model source: OTA"
-        ModelSource.Missing -> "Model source: Missing"
-    }
+private fun SourceRow(
+    modelSource: ModelSource,
+    modelDeliveryState: ModelDeliveryState,
+) {
+    val label = modelSourceLabel(
+        modelSource = modelSource,
+        modelDeliveryState = modelDeliveryState,
+    )
     Text(
         text = label,
         style = MaterialTheme.typography.labelLarge,

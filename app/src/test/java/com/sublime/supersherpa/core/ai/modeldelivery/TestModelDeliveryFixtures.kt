@@ -1,5 +1,9 @@
 package com.sublime.supersherpa.core.ai.modeldelivery
 
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelFile
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelManifest
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.TranscriptionModelDelivery
+import com.sublime.supersherpa.core.ai.modeldelivery.model.sha256
 import java.io.File
 import kotlin.io.path.createTempDirectory
 

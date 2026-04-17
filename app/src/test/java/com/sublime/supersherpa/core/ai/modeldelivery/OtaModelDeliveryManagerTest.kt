@@ -1,5 +1,12 @@
 package com.sublime.supersherpa.core.ai.modeldelivery
 
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelFile
+import com.sublime.supersherpa.core.ai.modeldelivery.manifest.RemoteModelManifest
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelDirectoryResolver
+import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelSource
+import com.sublime.supersherpa.core.ai.modeldelivery.network.RemoteModelArtifactDownloader
+import com.sublime.supersherpa.core.ai.modeldelivery.network.RemoteModelManifestProvider
+import com.sublime.supersherpa.core.ai.modeldelivery.state.ModelDeliveryState
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.runBlocking
@@ -98,6 +105,28 @@ class OtaModelDeliveryManagerTest {
         )
 
         assertEquals(ModelSource.Missing, manager.modelSource.value)
+    }
+
+    @Test
+    fun refreshUpdatesModelSourceWithoutBlockingCallers() = runBlocking {
+        val filesDir = createTempDirectory().toFile()
+        val resolver = ModelDirectoryResolver(filesDir = filesDir)
+        val manifest = testManifest(version = "parakeet-v1")
+        val installedDirectory = resolver.installedModelDirectory(manifest.version)
+        val manager = OtaModelDeliveryManager(
+            modelDirectoryResolver = resolver,
+            remoteModelManifestProvider = FakeRemoteModelManifestProvider(manifest),
+            remoteModelArtifactDownloader = NoOpRemoteModelArtifactDownloader(),
+        )
+
+        writeModelFiles(installedDirectory, manifest)
+        resolver.activateModel(manifest, installedDirectory)
+
+        val refreshJob = manager.refresh()
+        refreshJob?.join()
+
+        assertEquals(ModelSource.Ota, manager.modelSource.value)
+        assertEquals(ModelDeliveryState.Installed, manager.state.value)
     }
 
     @Test
