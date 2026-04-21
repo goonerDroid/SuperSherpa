@@ -240,7 +240,7 @@ internal fun VoiceOverviewCard(
                         }
                     }
 
-                    if (displayTranscript.isNotBlank()) {
+                    if (phase == VoicePhase.Result && displayTranscript.isNotBlank()) {
                         val transcriptContainerColor = MaterialTheme.colorScheme.surfaceContainer
                         Box(
                             modifier = Modifier
@@ -294,12 +294,17 @@ private fun rememberTypewriterText(
             return@LaunchedEffect
         }
 
+        if (targetText.length > 120) {
+            renderedText = targetText
+            return@LaunchedEffect
+        }
+
         while (renderedText != targetText) {
             val remainingChars = (targetText.length - renderedText.length).coerceAtLeast(0)
             val appendStep = when {
-                remainingChars >= 30 -> 4
-                remainingChars >= 12 -> 3
-                else -> 2
+                remainingChars >= 30 -> 6
+                remainingChars >= 12 -> 4
+                else -> 3
             }
             val nextText = when {
                 targetText.startsWith(renderedText) && renderedText.length < targetText.length -> {
@@ -317,7 +322,7 @@ private fun rememberTypewriterText(
                 renderedText = nextText
             }
             if (renderedText != targetText) {
-                delay(28L)
+                delay(36L)
             }
         }
     }

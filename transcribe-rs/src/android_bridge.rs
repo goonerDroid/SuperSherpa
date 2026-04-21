@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -48,11 +49,13 @@ unsafe impl Sync for SendStream {}
 struct VoiceSessionState {
     stream: Option<SendStream>,
     audio_buffer: Arc<Mutex<Vec<f32>>>,
+    partial_audio_window: Arc<Mutex<VecDeque<f32>>>,
     jvm: Arc<jni::JavaVM>,
     target_ref: GlobalRef,
     last_level_sent: Arc<Mutex<std::time::Instant>>,
     partial_stop_flag: Arc<AtomicBool>,
     partial_session_id: Arc<AtomicU64>,
+    partial_samples_written: Arc<AtomicU64>,
     last_partial_emitted: Arc<Mutex<String>>,
 }
 
@@ -393,11 +396,13 @@ fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
     let state = VoiceSessionState {
         stream: None,
         audio_buffer: Arc::new(Mutex::new(Vec::new())),
+        partial_audio_window: Arc::new(Mutex::new(VecDeque::new())),
         jvm: vm_arc.clone(),
         target_ref: target_ref.clone(),
         last_level_sent: Arc::new(Mutex::new(std::time::Instant::now())),
         partial_stop_flag: Arc::new(AtomicBool::new(true)),
         partial_session_id: Arc::new(AtomicU64::new(0)),
+        partial_samples_written: Arc::new(AtomicU64::new(0)),
         last_partial_emitted: Arc::new(Mutex::new(String::new())),
     };
 
@@ -505,14 +510,6 @@ fn merge_partial_transcript(previous: &str, candidate: &str) -> String {
     previous_trimmed.to_string()
 }
 
-fn partial_window_samples(samples: &[f32]) -> Vec<f32> {
-    if samples.len() <= PARTIAL_MAX_WINDOW_SAMPLES {
-        return samples.to_vec();
-    }
-
-    samples[samples.len() - PARTIAL_MAX_WINDOW_SAMPLES..].to_vec()
-}
-
 fn stop_partial_updates(state: &VoiceSessionState) {
     state.partial_stop_flag.store(true, Ordering::Release);
     let _ = state.partial_session_id.fetch_add(1, Ordering::AcqRel);
@@ -526,14 +523,15 @@ fn start_partial_updates(state: &VoiceSessionState) {
 
     let partial_stop_flag = state.partial_stop_flag.clone();
     let partial_session_id = state.partial_session_id.clone();
-    let audio_buffer = state.audio_buffer.clone();
+    let partial_audio_window = state.partial_audio_window.clone();
+    let partial_samples_written = state.partial_samples_written.clone();
     let jvm = state.jvm.clone();
     let target_ref = state.target_ref.clone();
     let last_partial_emitted = state.last_partial_emitted.clone();
 
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(PARTIAL_WARMUP_MILLIS));
-        let mut last_snapshot_len: usize = 0;
+        let mut last_snapshot_written: usize = 0;
 
         loop {
             let is_active = !partial_stop_flag.load(Ordering::Acquire)
@@ -542,26 +540,29 @@ fn start_partial_updates(state: &VoiceSessionState) {
                 break;
             }
 
-            let (total_samples, samples_snapshot) = {
-                let buffer = audio_buffer.lock().unwrap();
-                let total = buffer.len();
-                if total < PARTIAL_MIN_AUDIO_SAMPLES {
-                    (total, Vec::new())
+            let total_samples_written = partial_samples_written.load(Ordering::Acquire) as usize;
+            let (windowed_samples, samples_snapshot) = {
+                let buffer = partial_audio_window.lock().unwrap();
+                let windowed = buffer.len();
+                if windowed < PARTIAL_MIN_AUDIO_SAMPLES {
+                    (windowed, Vec::new())
                 } else {
-                    (total, partial_window_samples(buffer.as_slice()))
+                    (windowed, buffer.iter().copied().collect::<Vec<f32>>())
                 }
             };
 
-            if total_samples >= PARTIAL_MIN_AUDIO_SAMPLES {
-                let new_samples = total_samples.saturating_sub(last_snapshot_len);
-                if last_snapshot_len > 0 && new_samples < PARTIAL_MIN_NEW_SAMPLES {
+            if total_samples_written >= PARTIAL_MIN_AUDIO_SAMPLES
+                && windowed_samples >= PARTIAL_MIN_AUDIO_SAMPLES
+            {
+                let new_samples = total_samples_written.saturating_sub(last_snapshot_written);
+                if last_snapshot_written > 0 && new_samples < PARTIAL_MIN_NEW_SAMPLES {
                     std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
                     continue;
                 }
 
                 if let Some(engine) = get_engine() {
                     let result = if let Ok(mut eng) = engine.try_lock() {
-                        last_snapshot_len = total_samples;
+                        last_snapshot_written = total_samples_written;
                         eng.transcribe_samples(samples_snapshot, None)
                     } else {
                         std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
@@ -604,7 +605,7 @@ fn start_partial_updates(state: &VoiceSessionState) {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_partial_transcript, partial_window_samples, PARTIAL_MAX_WINDOW_SAMPLES};
+    use super::merge_partial_transcript;
 
     #[test]
     fn merge_partial_extension_uses_candidate() {
@@ -635,23 +636,6 @@ mod tests {
         let merged = merge_partial_transcript("hello world", "   ");
         assert_eq!(merged, "hello world");
     }
-
-    #[test]
-    fn partial_window_keeps_full_when_under_limit() {
-        let samples = vec![0.0f32; PARTIAL_MAX_WINDOW_SAMPLES - 10];
-        let window = partial_window_samples(samples.as_slice());
-        assert_eq!(window.len(), samples.len());
-    }
-
-    #[test]
-    fn partial_window_trims_to_recent_tail() {
-        let samples: Vec<f32> = (0..(PARTIAL_MAX_WINDOW_SAMPLES + 50))
-            .map(|index| index as f32)
-            .collect();
-        let window = partial_window_samples(samples.as_slice());
-        assert_eq!(window.len(), PARTIAL_MAX_WINDOW_SAMPLES);
-        assert_eq!(window[0], 50f32);
-    }
 }
 
 fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
@@ -676,7 +660,11 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
     };
 
     state.audio_buffer.lock().unwrap().clear();
+    state.partial_audio_window.lock().unwrap().clear();
+    state.partial_samples_written.store(0, Ordering::Release);
     let buffer_clone = state.audio_buffer.clone();
+    let partial_window_clone = state.partial_audio_window.clone();
+    let partial_samples_written = state.partial_samples_written.clone();
     let jvm = state.jvm.clone();
     let target_ref = state.target_ref.clone();
     let last_sent = state.last_level_sent.clone();
@@ -685,6 +673,16 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
         &config,
         move |data: &[f32], _: &_| {
             buffer_clone.lock().unwrap().extend_from_slice(data);
+            if let Ok(mut partial_window) = partial_window_clone.try_lock() {
+                partial_window.extend(data.iter().copied());
+                let overflow = partial_window
+                    .len()
+                    .saturating_sub(PARTIAL_MAX_WINDOW_SAMPLES);
+                if overflow > 0 {
+                    partial_window.drain(..overflow);
+                }
+                partial_samples_written.fetch_add(data.len() as u64, Ordering::AcqRel);
+            }
 
             let mut sum = 0.0f32;
             for &sample in data {
@@ -736,6 +734,8 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
     stop_partial_updates(state);
     state.stream = None;
+    state.partial_audio_window.lock().unwrap().clear();
+    state.partial_samples_written.store(0, Ordering::Release);
 
     let buffer = state.audio_buffer.lock().unwrap().clone();
     if buffer.is_empty() {
@@ -799,6 +799,8 @@ fn voice_cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
     stop_partial_updates(state);
     state.stream = None;
     state.audio_buffer.lock().unwrap().clear();
+    state.partial_audio_window.lock().unwrap().clear();
+    state.partial_samples_written.store(0, Ordering::Release);
     notify_status(&mut env, state.target_ref.as_obj(), "Canceled");
 }
 
