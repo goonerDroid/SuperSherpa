@@ -35,8 +35,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +58,7 @@ import com.sublime.supersherpa.feature.transcription.presentation.phase
 import com.sublime.supersherpa.feature.transcription.presentation.transcript
 import com.sublime.supersherpa.ui.theme.AppCornerRadius
 import com.sublime.supersherpa.ui.theme.AppSpacing
+import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.pow
@@ -182,6 +186,15 @@ internal fun VoiceOverviewCard(
                     else -> voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
                 }
             }
+            val animatedDisplayTranscript = rememberTypewriterText(
+                targetText = displayTranscript,
+                enabled = phase == VoicePhase.Listening && displayTranscript.isNotBlank(),
+            )
+            val transcriptText = if (phase == VoicePhase.Listening && displayTranscript.isNotBlank()) {
+                animatedDisplayTranscript.ifBlank { displayTranscript.take(1) }
+            } else {
+                displayTranscript
+            }
             val transcriptScrollState = rememberScrollState()
             val transcriptTextColor = if (phase == VoicePhase.Error && modelSource != ModelSource.Missing) {
                 MaterialTheme.colorScheme.error
@@ -220,7 +233,7 @@ internal fun VoiceOverviewCard(
                             )
                         } else {
                             Text(
-                                text = displayTranscript,
+                                text = transcriptText,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = transcriptTextColor,
                             )
@@ -261,6 +274,56 @@ internal fun VoiceOverviewCard(
             }
         }
     }
+}
+
+@Composable
+private fun rememberTypewriterText(
+    targetText: String,
+    enabled: Boolean,
+): String {
+    var renderedText by remember { mutableStateOf("") }
+
+    LaunchedEffect(targetText, enabled) {
+        if (!enabled) {
+            renderedText = targetText
+            return@LaunchedEffect
+        }
+
+        if (targetText.isBlank()) {
+            renderedText = ""
+            return@LaunchedEffect
+        }
+
+        while (renderedText != targetText) {
+            val nextText = when {
+                targetText.startsWith(renderedText) && renderedText.length < targetText.length -> {
+                    targetText.substring(0, renderedText.length + 1)
+                }
+                else -> {
+                    val prefixLength = commonPrefixLength(renderedText, targetText)
+                    targetText.substring(0, prefixLength)
+                }
+            }
+
+            if (nextText == renderedText && renderedText != targetText) {
+                renderedText = targetText.take(1)
+            } else {
+                renderedText = nextText
+            }
+            delay(14L)
+        }
+    }
+
+    return if (enabled) renderedText else targetText
+}
+
+private fun commonPrefixLength(first: String, second: String): Int {
+    val minLength = minOf(first.length, second.length)
+    var index = 0
+    while (index < minLength && first[index] == second[index]) {
+        index += 1
+    }
+    return index
 }
 
 @Composable

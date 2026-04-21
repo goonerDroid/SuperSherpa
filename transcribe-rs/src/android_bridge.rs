@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use jni::objects::{GlobalRef, JClass, JObject, JShortArray, JString};
@@ -18,6 +20,10 @@ static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
     Lazy::new(|| (Mutex::new(LoadState::Idle), Condvar::new()));
 
 const MODEL_DIR_NAME: &str = "parakeet-tdt-0.6b-v3-int8";
+const PARTIAL_WARMUP_MILLIS: u64 = 300;
+const PARTIAL_INTERVAL_MILLIS: u64 = 250;
+const PARTIAL_MIN_AUDIO_SAMPLES: usize = 3_200;
+const PARTIAL_MIN_NEW_SAMPLES: usize = 1_600;
 const REQUIRED_MODEL_FILES: [&str; 4] = [
     "vocab.txt",
     "encoder-model.int8.onnx",
@@ -44,6 +50,9 @@ struct VoiceSessionState {
     jvm: Arc<jni::JavaVM>,
     target_ref: GlobalRef,
     last_level_sent: Arc<Mutex<std::time::Instant>>,
+    partial_stop_flag: Arc<AtomicBool>,
+    partial_session_id: Arc<AtomicU64>,
+    last_partial_emitted: Arc<Mutex<String>>,
 }
 
 fn notify_status(env: &mut JNIEnv, obj: &jni::objects::JObject, msg: &str) {
@@ -388,6 +397,9 @@ fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
         jvm: vm_arc.clone(),
         target_ref: target_ref.clone(),
         last_level_sent: Arc::new(Mutex::new(std::time::Instant::now())),
+        partial_stop_flag: Arc::new(AtomicBool::new(true)),
+        partial_session_id: Arc::new(AtomicU64::new(0)),
+        last_partial_emitted: Arc::new(Mutex::new(String::new())),
     };
 
     let vm_clone = vm_arc.clone();
@@ -397,7 +409,11 @@ fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
     });
 
     *GLOBAL_CONTEXT.lock().unwrap() = Some(target_ref);
-    *VOICE_SESSION.lock().unwrap() = Some(state);
+    let mut previous_session = VOICE_SESSION.lock().unwrap();
+    if let Some(existing) = previous_session.as_ref() {
+        stop_partial_updates(existing);
+    }
+    *previous_session = Some(state);
     Ok(())
 }
 
@@ -416,7 +432,196 @@ fn notify_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
     }
 }
 
+fn notify_partial_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
+    if let Ok(jtxt) = env.new_string(text) {
+        let _ = env.call_method(
+            obj,
+            "onPartialTextTranscribed",
+            "(Ljava/lang/String;)V",
+            &[(&jtxt).into()],
+        );
+    }
+}
+
+fn char_count(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn prefix_chars(text: &str, count: usize) -> String {
+    text.chars().take(count).collect()
+}
+
+fn suffix_chars(text: &str, count: usize) -> String {
+    let total = char_count(text);
+    text.chars().skip(total.saturating_sub(count)).collect()
+}
+
+fn drop_prefix_chars(text: &str, count: usize) -> String {
+    text.chars().skip(count).collect()
+}
+
+fn merge_partial_transcript(previous: &str, candidate: &str) -> String {
+    let previous_trimmed = previous.trim();
+    let candidate_trimmed = candidate.trim();
+
+    if candidate_trimmed.is_empty() {
+        return previous_trimmed.to_string();
+    }
+
+    if previous_trimmed.is_empty() {
+        return candidate_trimmed.to_string();
+    }
+
+    if candidate_trimmed == previous_trimmed {
+        return previous_trimmed.to_string();
+    }
+
+    if candidate_trimmed.starts_with(previous_trimmed) {
+        return candidate_trimmed.to_string();
+    }
+
+    let previous_len = char_count(previous_trimmed);
+    let candidate_len = char_count(candidate_trimmed);
+
+    if previous_trimmed.starts_with(candidate_trimmed) && candidate_len + 6 < previous_len {
+        return previous_trimmed.to_string();
+    }
+
+    let max_overlap = previous_len.min(candidate_len);
+    for overlap_len in (3..=max_overlap).rev() {
+        let previous_suffix = suffix_chars(previous_trimmed, overlap_len);
+        let candidate_prefix = prefix_chars(candidate_trimmed, overlap_len);
+        if previous_suffix.eq_ignore_ascii_case(candidate_prefix.as_str()) {
+            let candidate_suffix = drop_prefix_chars(candidate_trimmed, overlap_len);
+            return format!("{previous_trimmed}{candidate_suffix}").trim().to_string();
+        }
+    }
+
+    if candidate_len + 2 >= previous_len {
+        return candidate_trimmed.to_string();
+    }
+
+    previous_trimmed.to_string()
+}
+
+fn stop_partial_updates(state: &VoiceSessionState) {
+    state.partial_stop_flag.store(true, Ordering::Release);
+    let _ = state.partial_session_id.fetch_add(1, Ordering::AcqRel);
+    state.last_partial_emitted.lock().unwrap().clear();
+}
+
+fn start_partial_updates(state: &VoiceSessionState) {
+    state.partial_stop_flag.store(false, Ordering::Release);
+    let session_id = state.partial_session_id.fetch_add(1, Ordering::AcqRel) + 1;
+    state.last_partial_emitted.lock().unwrap().clear();
+
+    let partial_stop_flag = state.partial_stop_flag.clone();
+    let partial_session_id = state.partial_session_id.clone();
+    let audio_buffer = state.audio_buffer.clone();
+    let jvm = state.jvm.clone();
+    let target_ref = state.target_ref.clone();
+    let last_partial_emitted = state.last_partial_emitted.clone();
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(PARTIAL_WARMUP_MILLIS));
+        let mut last_snapshot_len: usize = 0;
+
+        loop {
+            let is_active = !partial_stop_flag.load(Ordering::Acquire)
+                && partial_session_id.load(Ordering::Acquire) == session_id;
+            if !is_active {
+                break;
+            }
+
+            let samples_snapshot = audio_buffer.lock().unwrap().clone();
+            if samples_snapshot.len() >= PARTIAL_MIN_AUDIO_SAMPLES {
+                let new_samples = samples_snapshot.len().saturating_sub(last_snapshot_len);
+                if last_snapshot_len > 0 && new_samples < PARTIAL_MIN_NEW_SAMPLES {
+                    std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+                    continue;
+                }
+
+                if let Some(engine) = get_engine() {
+                    last_snapshot_len = samples_snapshot.len();
+                    let result = {
+                        let mut eng = engine.lock().unwrap();
+                        eng.transcribe_samples(samples_snapshot, None)
+                    };
+
+                    let still_active = !partial_stop_flag.load(Ordering::Acquire)
+                        && partial_session_id.load(Ordering::Acquire) == session_id;
+                    if !still_active {
+                        break;
+                    }
+
+                    if let Ok(transcription) = result {
+                        let cleaned_text = transcription.text.trim().to_string();
+                        let merged_text = {
+                            let mut previous = last_partial_emitted.lock().unwrap();
+                            let merged = merge_partial_transcript(previous.as_str(), cleaned_text.as_str());
+                            if merged.is_empty() || merged == previous.as_str() {
+                                None
+                            } else {
+                                *previous = merged.clone();
+                                Some(merged)
+                            }
+                        };
+
+                        if let Some(merged) = merged_text {
+                            if let Ok(mut env) = jvm.attach_current_thread() {
+                                notify_partial_text(
+                                    &mut env,
+                                    target_ref.as_obj(),
+                                    merged.as_str(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_partial_transcript;
+
+    #[test]
+    fn merge_partial_extension_uses_candidate() {
+        let merged = merge_partial_transcript("hello", "hello world");
+        assert_eq!(merged, "hello world");
+    }
+
+    #[test]
+    fn merge_partial_overlap_stitches_text() {
+        let merged = merge_partial_transcript("hello wor", "world today");
+        assert_eq!(merged, "hello world today");
+    }
+
+    #[test]
+    fn merge_partial_accepts_similar_length_correction() {
+        let merged = merge_partial_transcript("hello wrld", "hello world");
+        assert_eq!(merged, "hello world");
+    }
+
+    #[test]
+    fn merge_partial_ignores_short_regression_chunk() {
+        let merged = merge_partial_transcript("hello world from android", "hello world");
+        assert_eq!(merged, "hello world from android");
+    }
+
+    #[test]
+    fn merge_partial_ignores_blank_candidate() {
+        let merged = merge_partial_transcript("hello world", "   ");
+        assert_eq!(merged, "hello world");
+    }
+}
+
 fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    stop_partial_updates(state);
     let host = cpal::default_host();
     let device = match host.default_input_device() {
         Some(device) => device,
@@ -474,6 +679,7 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
         Ok(stream) => {
             if stream.play().is_ok() {
                 state.stream = Some(SendStream(stream));
+                start_partial_updates(state);
                 notify_status(&mut env, state.target_ref.as_obj(), "Listening...");
             } else {
                 notify_status(
@@ -494,6 +700,7 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 }
 
 fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    stop_partial_updates(state);
     state.stream = None;
 
     let buffer = state.audio_buffer.lock().unwrap().clone();
@@ -555,6 +762,7 @@ fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 }
 
 fn voice_cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    stop_partial_updates(state);
     state.stream = None;
     state.audio_buffer.lock().unwrap().clear();
     notify_status(&mut env, state.target_ref.as_obj(), "Canceled");
@@ -590,7 +798,11 @@ pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscr
 
     if should_cleanup {
         reset_loaded_engine_state();
-        *VOICE_SESSION.lock().unwrap() = None;
+        let mut guard = VOICE_SESSION.lock().unwrap();
+        if let Some(state) = guard.as_ref() {
+            stop_partial_updates(state);
+        }
+        *guard = None;
         *GLOBAL_CONTEXT.lock().unwrap() = None;
         *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = None;
     }

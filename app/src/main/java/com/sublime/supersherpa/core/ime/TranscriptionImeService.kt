@@ -34,6 +34,9 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
 
     private var voiceBarPhase = VoiceBarPhase.Idle
     private var latestTranscript = ""
+    private var latestPartialTranscript = ""
+    private var displayedPartialTranscript = ""
+    private var partialTypingRunnable: Runnable? = null
     private var isAwaitingCommit = false
     private var waveformAnimator: ValueAnimator? = null
     private var latestAudioLevel = 0f
@@ -47,6 +50,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
     }
 
     override fun onDestroy() {
+        stopPartialTypingAnimation(resetDisplayedText = true)
         stopListeningWaveform()
         serviceScope.cancel()
         bridge.cleanupNative(this)
@@ -118,6 +122,8 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
         voiceBarPhase = VoiceBarPhase.Idle
         isAwaitingCommit = false
         latestTranscript = ""
+        latestPartialTranscript = ""
+        stopPartialTypingAnimation(resetDisplayedText = true)
         renderVoiceBar()
         super.onFinishInputView(finishingInput)
     }
@@ -129,9 +135,12 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
                 NativeTranscriptionMessage.Listening -> {
                     voiceBarPhase = VoiceBarPhase.Listening
                     latestTranscript = ""
+                    latestPartialTranscript = ""
+                    stopPartialTypingAnimation(resetDisplayedText = true)
                 }
                 NativeTranscriptionMessage.Processing -> {
                     voiceBarPhase = VoiceBarPhase.Processing
+                    stopPartialTypingAnimation(resetDisplayedText = true)
                 }
                 NativeTranscriptionMessage.Ready -> {
                     if (voiceBarPhase == VoiceBarPhase.Processing) {
@@ -145,11 +154,15 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
                 NativeTranscriptionMessage.Canceled -> {
                     voiceBarPhase = VoiceBarPhase.Idle
                     latestTranscript = ""
+                    latestPartialTranscript = ""
+                    stopPartialTypingAnimation(resetDisplayedText = true)
                     isAwaitingCommit = false
                 }
                 is NativeTranscriptionMessage.Error -> {
                     voiceBarPhase = VoiceBarPhase.Error
                     latestTranscript = event.message
+                    latestPartialTranscript = ""
+                    stopPartialTypingAnimation(resetDisplayedText = true)
                     isAwaitingCommit = false
                 }
                 is NativeTranscriptionMessage.Transcript -> {
@@ -178,6 +191,8 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
         mainHandler.post {
             val cleaned = text.trim()
             latestTranscript = cleaned
+            latestPartialTranscript = ""
+            stopPartialTypingAnimation(resetDisplayedText = true)
 
             if (cleaned.isBlank()) {
                 voiceBarPhase = VoiceBarPhase.Error
@@ -200,6 +215,25 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
         }
     }
 
+    @Keep
+    fun onPartialTextTranscribed(text: String) {
+        mainHandler.post {
+            if (voiceBarPhase != VoiceBarPhase.Listening) return@post
+
+            val cleaned = text.trim()
+            if (cleaned.isBlank()) return@post
+            val current = latestPartialTranscript
+
+            val shouldKeepCurrent = current.isNotBlank() &&
+                cleaned.length + 8 < current.length &&
+                current.startsWith(cleaned, ignoreCase = true)
+            if (shouldKeepCurrent) return@post
+
+            latestPartialTranscript = cleaned
+            ensurePartialTypingAnimation()
+        }
+    }
+
     private fun onVoiceBarActionPressed() {
         when (voiceBarPhase) {
             VoiceBarPhase.Idle,
@@ -207,6 +241,8 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
             VoiceBarPhase.Error,
             -> {
                 latestTranscript = ""
+                latestPartialTranscript = ""
+                stopPartialTypingAnimation(resetDisplayedText = true)
                 isAwaitingCommit = true
                 voiceBarPhase = VoiceBarPhase.Listening
                 renderVoiceBar()
@@ -214,6 +250,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
             }
             VoiceBarPhase.Listening -> {
                 voiceBarPhase = VoiceBarPhase.Processing
+                stopPartialTypingAnimation(resetDisplayedText = true)
                 renderVoiceBar()
                 bridge.stopRecording()
             }
@@ -226,7 +263,9 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
 
         val statusText = when (voiceBarPhase) {
             VoiceBarPhase.Idle -> ""
-            VoiceBarPhase.Listening -> getString(R.string.voice_bar_listening)
+            VoiceBarPhase.Listening -> displayedPartialTranscript.ifBlank {
+                getString(R.string.voice_bar_listening)
+            }
             VoiceBarPhase.Processing -> getString(R.string.voice_bar_processing)
             VoiceBarPhase.Result -> ""
             VoiceBarPhase.Error -> latestTranscript.ifBlank {
@@ -248,6 +287,74 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
         currentBinding.voiceBarAction.contentDescription = actionText
         currentBinding.voiceBarAction.alpha = 1f
         updateListeningWaveformState()
+    }
+
+    private fun ensurePartialTypingAnimation() {
+        if (partialTypingRunnable != null) return
+
+        val runnable = object : Runnable {
+            override fun run() {
+                if (voiceBarPhase != VoiceBarPhase.Listening) {
+                    partialTypingRunnable = null
+                    return
+                }
+
+                val target = latestPartialTranscript
+                if (target.isBlank()) {
+                    if (displayedPartialTranscript.isNotBlank()) {
+                        displayedPartialTranscript = ""
+                        renderVoiceBar()
+                    }
+                    partialTypingRunnable = null
+                    return
+                }
+
+                val current = displayedPartialTranscript
+                val next = when {
+                    target.startsWith(current) && current.length < target.length -> {
+                        target.substring(0, current.length + 1)
+                    }
+                    target == current -> current
+                    else -> {
+                        val prefixLength = commonPrefixLength(current, target)
+                        target.substring(0, prefixLength)
+                    }
+                }
+
+                if (next != displayedPartialTranscript) {
+                    displayedPartialTranscript = next
+                    renderVoiceBar()
+                }
+
+                if (displayedPartialTranscript != target) {
+                    mainHandler.postDelayed(this, 14L)
+                } else {
+                    partialTypingRunnable = null
+                }
+            }
+        }
+
+        partialTypingRunnable = runnable
+        mainHandler.post(runnable)
+    }
+
+    private fun stopPartialTypingAnimation(resetDisplayedText: Boolean) {
+        partialTypingRunnable?.let { runnable ->
+            mainHandler.removeCallbacks(runnable)
+        }
+        partialTypingRunnable = null
+        if (resetDisplayedText) {
+            displayedPartialTranscript = ""
+        }
+    }
+
+    private fun commonPrefixLength(first: String, second: String): Int {
+        val minLength = minOf(first.length, second.length)
+        var index = 0
+        while (index < minLength && first[index] == second[index]) {
+            index += 1
+        }
+        return index
     }
 
     private fun updateListeningWaveformState() {

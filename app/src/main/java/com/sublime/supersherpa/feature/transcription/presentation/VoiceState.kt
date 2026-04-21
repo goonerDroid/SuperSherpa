@@ -20,6 +20,7 @@ sealed interface VoiceState {
     @Immutable
     data class Listening(
         override val audioLevel: Float = 0f,
+        val partialTranscript: String = "",
     ) : VoiceState
 
     @Immutable
@@ -59,6 +60,7 @@ val VoiceState.phase: VoicePhase
 
 val VoiceState.transcript: String
     get() = when (this) {
+        is VoiceState.Listening -> partialTranscript
         is VoiceState.Result -> transcript
         else -> ""
     }
@@ -72,7 +74,7 @@ val VoiceState.errorMessage: String?
 fun VoiceState.withAudioLevel(level: Float): VoiceState =
     when (this) {
         VoiceState.Idle -> this
-        is VoiceState.Listening -> copy(audioLevel = level)
+        is VoiceState.Listening -> copy(audioLevel = level, partialTranscript = partialTranscript)
         is VoiceState.Processing -> copy(audioLevel = level)
         is VoiceState.Result -> copy(audioLevel = level)
         is VoiceState.Error -> copy(audioLevel = level)

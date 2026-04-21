@@ -1,9 +1,9 @@
 package com.sublime.supersherpa.feature.transcription.presentation
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlinx.coroutines.runBlocking
 
 class TranscriptionViewModelTest {
     @Test
@@ -44,13 +44,52 @@ class TranscriptionViewModelTest {
         val viewModel = TranscriptionViewModel()
 
         viewModel.setListening()
+        viewModel.applyPartialTranscript("live partial")
         viewModel.setAudioLevel(1.4f)
         assertEquals(1f, viewModel.currentState.audioLevel, 0f)
         assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
+        assertEquals("live partial", viewModel.currentState.transcript)
 
         viewModel.setAudioLevel(-0.5f)
         assertEquals(0f, viewModel.currentState.audioLevel, 0f)
         assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
+        assertEquals("live partial", viewModel.currentState.transcript)
+    }
+
+    @Test
+    fun partialTranscriptUpdatesListeningState() {
+        val viewModel = TranscriptionViewModel()
+
+        viewModel.setListening()
+        viewModel.applyPartialTranscript(" hello wor ")
+
+        assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
+        assertEquals("hello wor", viewModel.currentState.transcript)
+    }
+
+    @Test
+    fun finalTranscriptReplacesPartialTranscript() = runBlocking {
+        val viewModel = TranscriptionViewModel()
+
+        viewModel.setListening()
+        viewModel.applyPartialTranscript("hello wor")
+
+        assertTrue(viewModel.applyTranscribedText(" hello world "))
+        assertEquals(VoicePhase.Result, viewModel.currentState.phase)
+        assertEquals("hello world", viewModel.currentState.transcript)
+    }
+
+    @Test
+    fun resetClearsPartialTranscript() {
+        val viewModel = TranscriptionViewModel()
+
+        viewModel.setListening()
+        viewModel.applyPartialTranscript("draft")
+
+        viewModel.reset()
+
+        assertEquals(VoicePhase.Idle, viewModel.currentState.phase)
+        assertEquals("", viewModel.currentState.transcript)
     }
 
     @Test
@@ -65,4 +104,5 @@ class TranscriptionViewModelTest {
         )
         assertEquals("microphone unavailable", viewModel.currentState.errorMessage)
     }
+
 }

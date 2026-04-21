@@ -54,6 +54,18 @@ class TranscriptionViewModel(
         _voiceState.value = _voiceState.value.withAudioLevel(level.coerceIn(0f, 1f))
     }
 
+    fun applyPartialTranscript(text: String) {
+        val cleanedText = text.trim()
+        val currentState = _voiceState.value
+        if (
+            currentState is VoiceState.Listening &&
+            cleanedText.isNotBlank() &&
+            cleanedText != currentState.partialTranscript
+        ) {
+            _voiceState.value = currentState.copy(partialTranscript = cleanedText)
+        }
+    }
+
     fun reset() {
         _voiceState.value = VoiceState.Idle
     }

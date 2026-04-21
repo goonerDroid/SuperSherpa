@@ -279,6 +279,13 @@ class MainActivity : ComponentActivity() {
     }
 
     @Keep
+    fun onPartialTextTranscribed(text: String) {
+        runOnUiThread {
+            transcriptionViewModel.applyPartialTranscript(text)
+        }
+    }
+
+    @Keep
     fun onTextTranscribed(text: String) {
         lifecycleScope.launch {
             transcriptionViewModel.applyTranscribedText(text)
