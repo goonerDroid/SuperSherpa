@@ -68,6 +68,27 @@ class TranscriptionViewModelTest {
     }
 
     @Test
+    fun partialTranscriptIgnoredWhenNotListening() {
+        val viewModel = TranscriptionViewModel()
+
+        viewModel.applyPartialTranscript("hello world")
+
+        assertEquals(VoicePhase.Idle, viewModel.currentState.phase)
+        assertEquals("", viewModel.currentState.transcript)
+    }
+
+    @Test
+    fun blankPartialTranscriptIgnoredWhileListening() {
+        val viewModel = TranscriptionViewModel()
+
+        viewModel.setListening()
+        viewModel.applyPartialTranscript("   ")
+
+        assertEquals(VoicePhase.Listening, viewModel.currentState.phase)
+        assertEquals("", viewModel.currentState.transcript)
+    }
+
+    @Test
     fun finalTranscriptReplacesPartialTranscript() = runBlocking {
         val viewModel = TranscriptionViewModel()
 

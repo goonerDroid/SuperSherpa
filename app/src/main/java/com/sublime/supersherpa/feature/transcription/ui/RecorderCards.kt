@@ -295,9 +295,15 @@ private fun rememberTypewriterText(
         }
 
         while (renderedText != targetText) {
+            val remainingChars = (targetText.length - renderedText.length).coerceAtLeast(0)
+            val appendStep = when {
+                remainingChars >= 30 -> 4
+                remainingChars >= 12 -> 3
+                else -> 2
+            }
             val nextText = when {
                 targetText.startsWith(renderedText) && renderedText.length < targetText.length -> {
-                    targetText.substring(0, renderedText.length + 1)
+                    targetText.substring(0, (renderedText.length + appendStep).coerceAtMost(targetText.length))
                 }
                 else -> {
                     val prefixLength = commonPrefixLength(renderedText, targetText)
@@ -310,7 +316,9 @@ private fun rememberTypewriterText(
             } else {
                 renderedText = nextText
             }
-            delay(14L)
+            if (renderedText != targetText) {
+                delay(28L)
+            }
         }
     }
 

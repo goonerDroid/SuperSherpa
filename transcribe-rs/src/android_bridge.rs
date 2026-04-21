@@ -24,6 +24,7 @@ const PARTIAL_WARMUP_MILLIS: u64 = 300;
 const PARTIAL_INTERVAL_MILLIS: u64 = 250;
 const PARTIAL_MIN_AUDIO_SAMPLES: usize = 3_200;
 const PARTIAL_MIN_NEW_SAMPLES: usize = 1_600;
+const PARTIAL_MAX_WINDOW_SAMPLES: usize = 16_000 * 8;
 const REQUIRED_MODEL_FILES: [&str; 4] = [
     "vocab.txt",
     "encoder-model.int8.onnx",
@@ -81,10 +82,7 @@ fn reset_loaded_engine_state() {
     cvar.notify_all();
 }
 
-fn ensure_loaded_from_thread(
-    jvm: &Arc<jni::JavaVM>,
-    target_ref: &GlobalRef,
-) -> Result<(), String> {
+fn ensure_loaded_from_thread(jvm: &Arc<jni::JavaVM>, target_ref: &GlobalRef) -> Result<(), String> {
     if is_engine_loaded() {
         if let Ok(mut env) = jvm.attach_current_thread() {
             notify_status(&mut env, target_ref.as_obj(), "Ready");
@@ -161,10 +159,7 @@ fn do_load(env: &mut JNIEnv, context: &jni::objects::JObject) -> Result<(), Stri
 
     notify_status(env, context, "Loading model...");
     let mut eng = ParakeetEngine::new();
-    match eng.load_model_with_params(
-        &path,
-        crate::engines::parakeet::ParakeetModelParams::int8(),
-    ) {
+    match eng.load_model_with_params(&path, crate::engines::parakeet::ParakeetModelParams::int8()) {
         Ok(_) => {
             *GLOBAL_ENGINE.lock().unwrap() = Some(Arc::new(Mutex::new(eng)));
             notify_status(env, context, "Ready");
@@ -329,7 +324,11 @@ fn copy_asset_file(
     }
 }
 
-fn init_native(env: JNIEnv, activity: JObject, model_dir_override: Option<String>) -> Result<(), String> {
+fn init_native(
+    env: JNIEnv,
+    activity: JObject,
+    model_dir_override: Option<String>,
+) -> Result<(), String> {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
@@ -493,7 +492,9 @@ fn merge_partial_transcript(previous: &str, candidate: &str) -> String {
         let candidate_prefix = prefix_chars(candidate_trimmed, overlap_len);
         if previous_suffix.eq_ignore_ascii_case(candidate_prefix.as_str()) {
             let candidate_suffix = drop_prefix_chars(candidate_trimmed, overlap_len);
-            return format!("{previous_trimmed}{candidate_suffix}").trim().to_string();
+            return format!("{previous_trimmed}{candidate_suffix}")
+                .trim()
+                .to_string();
         }
     }
 
@@ -502,6 +503,14 @@ fn merge_partial_transcript(previous: &str, candidate: &str) -> String {
     }
 
     previous_trimmed.to_string()
+}
+
+fn partial_window_samples(samples: &[f32]) -> Vec<f32> {
+    if samples.len() <= PARTIAL_MAX_WINDOW_SAMPLES {
+        return samples.to_vec();
+    }
+
+    samples[samples.len() - PARTIAL_MAX_WINDOW_SAMPLES..].to_vec()
 }
 
 fn stop_partial_updates(state: &VoiceSessionState) {
@@ -533,19 +542,30 @@ fn start_partial_updates(state: &VoiceSessionState) {
                 break;
             }
 
-            let samples_snapshot = audio_buffer.lock().unwrap().clone();
-            if samples_snapshot.len() >= PARTIAL_MIN_AUDIO_SAMPLES {
-                let new_samples = samples_snapshot.len().saturating_sub(last_snapshot_len);
+            let (total_samples, samples_snapshot) = {
+                let buffer = audio_buffer.lock().unwrap();
+                let total = buffer.len();
+                if total < PARTIAL_MIN_AUDIO_SAMPLES {
+                    (total, Vec::new())
+                } else {
+                    (total, partial_window_samples(buffer.as_slice()))
+                }
+            };
+
+            if total_samples >= PARTIAL_MIN_AUDIO_SAMPLES {
+                let new_samples = total_samples.saturating_sub(last_snapshot_len);
                 if last_snapshot_len > 0 && new_samples < PARTIAL_MIN_NEW_SAMPLES {
                     std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
                     continue;
                 }
 
                 if let Some(engine) = get_engine() {
-                    last_snapshot_len = samples_snapshot.len();
-                    let result = {
-                        let mut eng = engine.lock().unwrap();
+                    let result = if let Ok(mut eng) = engine.try_lock() {
+                        last_snapshot_len = total_samples;
                         eng.transcribe_samples(samples_snapshot, None)
+                    } else {
+                        std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+                        continue;
                     };
 
                     let still_active = !partial_stop_flag.load(Ordering::Acquire)
@@ -558,7 +578,8 @@ fn start_partial_updates(state: &VoiceSessionState) {
                         let cleaned_text = transcription.text.trim().to_string();
                         let merged_text = {
                             let mut previous = last_partial_emitted.lock().unwrap();
-                            let merged = merge_partial_transcript(previous.as_str(), cleaned_text.as_str());
+                            let merged =
+                                merge_partial_transcript(previous.as_str(), cleaned_text.as_str());
                             if merged.is_empty() || merged == previous.as_str() {
                                 None
                             } else {
@@ -569,11 +590,7 @@ fn start_partial_updates(state: &VoiceSessionState) {
 
                         if let Some(merged) = merged_text {
                             if let Ok(mut env) = jvm.attach_current_thread() {
-                                notify_partial_text(
-                                    &mut env,
-                                    target_ref.as_obj(),
-                                    merged.as_str(),
-                                );
+                                notify_partial_text(&mut env, target_ref.as_obj(), merged.as_str());
                             }
                         }
                     }
@@ -587,7 +604,7 @@ fn start_partial_updates(state: &VoiceSessionState) {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_partial_transcript;
+    use super::{merge_partial_transcript, partial_window_samples, PARTIAL_MAX_WINDOW_SAMPLES};
 
     #[test]
     fn merge_partial_extension_uses_candidate() {
@@ -617,6 +634,23 @@ mod tests {
     fn merge_partial_ignores_blank_candidate() {
         let merged = merge_partial_transcript("hello world", "   ");
         assert_eq!(merged, "hello world");
+    }
+
+    #[test]
+    fn partial_window_keeps_full_when_under_limit() {
+        let samples = vec![0.0f32; PARTIAL_MAX_WINDOW_SAMPLES - 10];
+        let window = partial_window_samples(samples.as_slice());
+        assert_eq!(window.len(), samples.len());
+    }
+
+    #[test]
+    fn partial_window_trims_to_recent_tail() {
+        let samples: Vec<f32> = (0..(PARTIAL_MAX_WINDOW_SAMPLES + 50))
+            .map(|index| index as f32)
+            .collect();
+        let window = partial_window_samples(samples.as_slice());
+        assert_eq!(window.len(), PARTIAL_MAX_WINDOW_SAMPLES);
+        assert_eq!(window[0], 50f32);
     }
 }
 
@@ -793,7 +827,10 @@ pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscr
         .lock()
         .unwrap()
         .as_ref()
-        .map(|current_target| env.is_same_object(current_target.as_obj(), &target).unwrap_or(false))
+        .map(|current_target| {
+            env.is_same_object(current_target.as_obj(), &target)
+                .unwrap_or(false)
+        })
         .unwrap_or(true);
 
     if should_cleanup {
