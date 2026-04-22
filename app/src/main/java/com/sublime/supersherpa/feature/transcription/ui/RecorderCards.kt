@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,8 +36,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +50,11 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.sublime.supersherpa.core.ai.modeldelivery.state.ModelDeliveryState
 import com.sublime.supersherpa.core.ai.modeldelivery.model.ModelSource
@@ -55,10 +66,17 @@ import com.sublime.supersherpa.feature.transcription.presentation.phase
 import com.sublime.supersherpa.feature.transcription.presentation.transcript
 import com.sublime.supersherpa.ui.theme.AppCornerRadius
 import com.sublime.supersherpa.ui.theme.AppSpacing
+import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.pow
 import kotlin.math.sin
+
+private const val LIVE_TRANSCRIPT_SCROLL_TAG = "live_transcript_scroll"
+private const val LIVE_TRANSCRIPT_TEXT_TAG = "live_transcript_text"
+private const val TYPEWRITER_FRAME_DELAY_MILLIS = 14L
+private const val FINAL_OVERWRITE_DELAY_MILLIS = 32L
+private const val FINAL_OVERWRITE_CHUNK_SIZE = 5
 
 @Composable
 internal fun VoiceOverviewCard(
@@ -182,11 +200,60 @@ internal fun VoiceOverviewCard(
                     else -> voiceState.transcript.ifBlank { voiceState.errorMessage.orEmpty() }
                 }
             }
+            var retainedLiveTranscript by remember { mutableStateOf("") }
+            val isLiveTranscript = phase == VoicePhase.Listening && displayTranscript.isNotBlank()
+            val animatedDisplayTranscript = key(isLiveTranscript) {
+                rememberLiveTypewriterText(
+                    targetText = displayTranscript,
+                    enabled = isLiveTranscript,
+                )
+            }
+            val finalOverwriteProgress = rememberFinalOverwriteProgress(
+                finalText = displayTranscript,
+                draftText = retainedLiveTranscript,
+                enabled = phase == VoicePhase.Result &&
+                    displayTranscript.isNotBlank() &&
+                    retainedLiveTranscript.isNotBlank(),
+            )
+            val transcriptText = when {
+                phase == VoicePhase.Listening && displayTranscript.isNotBlank() -> {
+                    animatedDisplayTranscript.ifBlank { displayTranscript.take(1) }
+                }
+                phase == VoicePhase.Processing && displayTranscript.isBlank() -> retainedLiveTranscript
+                phase == VoicePhase.Result && displayTranscript.isNotBlank() -> {
+                    overwritePreviewText(
+                        finalText = displayTranscript,
+                        draftText = retainedLiveTranscript,
+                        overwriteProgress = finalOverwriteProgress,
+                    )
+                }
+                else -> displayTranscript
+            }
+            val isDraftTranscript = (phase == VoicePhase.Listening || phase == VoicePhase.Processing) &&
+                transcriptText.isNotBlank()
             val transcriptScrollState = rememberScrollState()
             val transcriptTextColor = if (phase == VoicePhase.Error && modelSource != ModelSource.Missing) {
                 MaterialTheme.colorScheme.error
             } else {
                 MaterialTheme.colorScheme.onSurface
+            }
+            LaunchedEffect(phase, displayTranscript, transcriptText) {
+                when {
+                    phase == VoicePhase.Listening && displayTranscript.isBlank() -> {
+                        retainedLiveTranscript = ""
+                    }
+                    phase == VoicePhase.Listening && transcriptText.isNotBlank() -> {
+                        retainedLiveTranscript = transcriptText
+                    }
+                    phase == VoicePhase.Idle || phase == VoicePhase.Error -> {
+                        retainedLiveTranscript = ""
+                    }
+                }
+            }
+            LaunchedEffect(phase, transcriptText.length) {
+                if (phase == VoicePhase.Listening && transcriptText.isNotBlank()) {
+                    transcriptScrollState.scrollTo(transcriptScrollState.maxValue)
+                }
             }
 
             OutlinedCard(
@@ -204,30 +271,61 @@ internal fun VoiceOverviewCard(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .testTag(LIVE_TRANSCRIPT_SCROLL_TAG)
                             .verticalScroll(transcriptScrollState)
                             .padding(
                                 start = AppSpacing.CardPaddingCompact,
-                                top = AppSpacing.CardPaddingCompact,
+                                top = AppSpacing.CardPaddingCompact + 4.dp,
                                 end = AppSpacing.CardPaddingCompact,
-                                bottom = if (displayTranscript.isBlank()) AppSpacing.CardPaddingCompact else 72.dp,
+                                bottom = when {
+                                    transcriptText.isBlank() -> AppSpacing.CardPaddingCompact
+                                    phase == VoicePhase.Result -> 72.dp
+                                    else -> AppSpacing.CardPaddingCompact + 8.dp
+                                },
                             ),
+                        verticalArrangement = Arrangement.spacedBy(AppSpacing.CardSubItemGap),
                     ) {
-                        if (displayTranscript.isBlank()) {
+                        if (transcriptText.isBlank()) {
                             Text(
                                 text = "Your transcription will appear here.",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
+                            if (isDraftTranscript) {
+                                Text(
+                                    text = "Draft preview",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
+                            }
                             Text(
-                                text = displayTranscript,
+                                modifier = Modifier.testTag(LIVE_TRANSCRIPT_TEXT_TAG),
+                                text = if (phase == VoicePhase.Result && retainedLiveTranscript.isNotBlank()) {
+                                    overwrittenTranscriptText(
+                                        finalText = displayTranscript,
+                                        draftText = retainedLiveTranscript,
+                                        overwriteProgress = finalOverwriteProgress,
+                                        finalStyle = SpanStyle(color = transcriptTextColor),
+                                        draftStyle = SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                                    )
+                                } else {
+                                    AnnotatedString(transcriptText)
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = transcriptTextColor,
+                                color = if (isDraftTranscript) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    transcriptTextColor
+                                },
                             )
                         }
                     }
 
-                    if (displayTranscript.isNotBlank()) {
+                    if (phase == VoicePhase.Result && displayTranscript.isNotBlank()) {
                         val transcriptContainerColor = MaterialTheme.colorScheme.surfaceContainer
                         Box(
                             modifier = Modifier
@@ -261,6 +359,116 @@ internal fun VoiceOverviewCard(
             }
         }
     }
+}
+
+@Composable
+private fun rememberFinalOverwriteProgress(
+    finalText: String,
+    draftText: String,
+    enabled: Boolean,
+): Int {
+    var overwriteProgress by remember { mutableStateOf(finalText.length) }
+
+    LaunchedEffect(enabled, finalText, draftText) {
+        if (!enabled || finalText.isBlank() || draftText.isBlank()) {
+            overwriteProgress = finalText.length
+            return@LaunchedEffect
+        }
+
+        overwriteProgress = commonPrefixLength(draftText, finalText)
+        while (overwriteProgress < finalText.length) {
+            delay(FINAL_OVERWRITE_DELAY_MILLIS)
+            overwriteProgress = (overwriteProgress + FINAL_OVERWRITE_CHUNK_SIZE)
+                .coerceAtMost(finalText.length)
+        }
+    }
+
+    return overwriteProgress
+}
+
+private fun overwritePreviewText(
+    finalText: String,
+    draftText: String,
+    overwriteProgress: Int,
+): String {
+    if (draftText.isBlank()) return finalText
+
+    val boundedProgress = overwriteProgress.coerceIn(0, finalText.length)
+    return buildString {
+        append(finalText.take(boundedProgress))
+        if (boundedProgress < draftText.length) {
+            append(draftText.substring(boundedProgress))
+        }
+    }
+}
+
+private fun overwrittenTranscriptText(
+    finalText: String,
+    draftText: String,
+    overwriteProgress: Int,
+    finalStyle: SpanStyle,
+    draftStyle: SpanStyle,
+): AnnotatedString {
+    if (draftText.isBlank()) return AnnotatedString(finalText)
+
+    val boundedProgress = overwriteProgress.coerceIn(0, finalText.length)
+    return buildAnnotatedString {
+        withStyle(finalStyle) {
+            append(finalText.take(boundedProgress))
+        }
+        if (boundedProgress < draftText.length) {
+            withStyle(draftStyle) {
+                append(draftText.substring(boundedProgress))
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberLiveTypewriterText(
+    targetText: String,
+    enabled: Boolean,
+): String {
+    var renderedText by remember { mutableStateOf("") }
+    val latestTargetText by rememberUpdatedState(targetText)
+
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            renderedText = latestTargetText
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            val currentTarget = latestTargetText
+            val nextText = when {
+                currentTarget.isBlank() -> ""
+                currentTarget == renderedText -> renderedText
+                currentTarget.startsWith(renderedText) && renderedText.length < currentTarget.length -> {
+                    currentTarget.substring(0, renderedText.length + 1)
+                }
+                else -> {
+                    val prefixLength = commonPrefixLength(renderedText, currentTarget)
+                    currentTarget.substring(0, prefixLength)
+                }
+            }
+
+            if (nextText != renderedText) {
+                renderedText = nextText
+            }
+            delay(TYPEWRITER_FRAME_DELAY_MILLIS)
+        }
+    }
+
+    return if (enabled) renderedText else targetText
+}
+
+private fun commonPrefixLength(first: String, second: String): Int {
+    val minLength = minOf(first.length, second.length)
+    var index = 0
+    while (index < minLength && first[index] == second[index]) {
+        index += 1
+    }
+    return index
 }
 
 @Composable

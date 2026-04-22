@@ -28,7 +28,11 @@ internal fun VoiceState.statusModel(): VoiceStatusModel =
 
         is VoiceState.Listening -> VoiceStatusModel(
             title = "Listening",
-            subtitle = "Audio is streaming into the transcription engine.",
+            subtitle = if (partialTranscript.isBlank()) {
+                "Speak naturally. Live transcript appears as you talk."
+            } else {
+                "Live transcript is updating in real time."
+            },
             icon = Icons.Outlined.GraphicEq,
         )
 

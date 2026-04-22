@@ -12,6 +12,13 @@ class VoiceStateTest {
     }
 
     @Test
+    fun listeningCarriesPartialTranscriptText() {
+        val state = VoiceState.Listening(partialTranscript = "hello wor")
+
+        assertEquals("hello wor", state.transcript)
+    }
+
+    @Test
     fun errorCarriesMessage() {
         val state = VoiceState.Error(errorMessage = "missing model")
 

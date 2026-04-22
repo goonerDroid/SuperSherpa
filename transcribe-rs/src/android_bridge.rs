@@ -1,5 +1,8 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use jni::objects::{GlobalRef, JClass, JObject, JShortArray, JString};
@@ -18,6 +21,12 @@ static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
     Lazy::new(|| (Mutex::new(LoadState::Idle), Condvar::new()));
 
 const MODEL_DIR_NAME: &str = "parakeet-tdt-0.6b-v3-int8";
+const PARTIAL_WARMUP_MILLIS: u64 = 300;
+const PARTIAL_INTERVAL_MILLIS: u64 = 750;
+const PARTIAL_MIN_AUDIO_SAMPLES: usize = 3_200;
+const PARTIAL_MIN_NEW_SAMPLES: usize = 12_000;
+const PARTIAL_MAX_WINDOW_SAMPLES: usize = 16_000 * 8;
+const PARTIAL_MIN_RMS: f32 = 0.003;
 const REQUIRED_MODEL_FILES: [&str; 4] = [
     "vocab.txt",
     "encoder-model.int8.onnx",
@@ -41,9 +50,15 @@ unsafe impl Sync for SendStream {}
 struct VoiceSessionState {
     stream: Option<SendStream>,
     audio_buffer: Arc<Mutex<Vec<f32>>>,
+    partial_audio_window: Arc<Mutex<VecDeque<f32>>>,
     jvm: Arc<jni::JavaVM>,
     target_ref: GlobalRef,
     last_level_sent: Arc<Mutex<std::time::Instant>>,
+    partial_stop_flag: Arc<AtomicBool>,
+    partial_session_id: Arc<AtomicU64>,
+    partial_samples_written: Arc<AtomicU64>,
+    last_partial_emitted: Arc<Mutex<String>>,
+    last_partial_window: Arc<Mutex<String>>,
 }
 
 fn notify_status(env: &mut JNIEnv, obj: &jni::objects::JObject, msg: &str) {
@@ -72,10 +87,7 @@ fn reset_loaded_engine_state() {
     cvar.notify_all();
 }
 
-fn ensure_loaded_from_thread(
-    jvm: &Arc<jni::JavaVM>,
-    target_ref: &GlobalRef,
-) -> Result<(), String> {
+fn ensure_loaded_from_thread(jvm: &Arc<jni::JavaVM>, target_ref: &GlobalRef) -> Result<(), String> {
     if is_engine_loaded() {
         if let Ok(mut env) = jvm.attach_current_thread() {
             notify_status(&mut env, target_ref.as_obj(), "Ready");
@@ -152,10 +164,7 @@ fn do_load(env: &mut JNIEnv, context: &jni::objects::JObject) -> Result<(), Stri
 
     notify_status(env, context, "Loading model...");
     let mut eng = ParakeetEngine::new();
-    match eng.load_model_with_params(
-        &path,
-        crate::engines::parakeet::ParakeetModelParams::int8(),
-    ) {
+    match eng.load_model_with_params(&path, crate::engines::parakeet::ParakeetModelParams::int8()) {
         Ok(_) => {
             *GLOBAL_ENGINE.lock().unwrap() = Some(Arc::new(Mutex::new(eng)));
             notify_status(env, context, "Ready");
@@ -320,7 +329,11 @@ fn copy_asset_file(
     }
 }
 
-fn init_native(env: JNIEnv, activity: JObject, model_dir_override: Option<String>) -> Result<(), String> {
+fn init_native(
+    env: JNIEnv,
+    activity: JObject,
+    model_dir_override: Option<String>,
+) -> Result<(), String> {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
@@ -385,9 +398,15 @@ fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
     let state = VoiceSessionState {
         stream: None,
         audio_buffer: Arc::new(Mutex::new(Vec::new())),
+        partial_audio_window: Arc::new(Mutex::new(VecDeque::new())),
         jvm: vm_arc.clone(),
         target_ref: target_ref.clone(),
         last_level_sent: Arc::new(Mutex::new(std::time::Instant::now())),
+        partial_stop_flag: Arc::new(AtomicBool::new(true)),
+        partial_session_id: Arc::new(AtomicU64::new(0)),
+        partial_samples_written: Arc::new(AtomicU64::new(0)),
+        last_partial_emitted: Arc::new(Mutex::new(String::new())),
+        last_partial_window: Arc::new(Mutex::new(String::new())),
     };
 
     let vm_clone = vm_arc.clone();
@@ -397,7 +416,11 @@ fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
     });
 
     *GLOBAL_CONTEXT.lock().unwrap() = Some(target_ref);
-    *VOICE_SESSION.lock().unwrap() = Some(state);
+    let mut previous_session = VOICE_SESSION.lock().unwrap();
+    if let Some(existing) = previous_session.as_ref() {
+        stop_partial_updates(existing);
+    }
+    *previous_session = Some(state);
     Ok(())
 }
 
@@ -416,7 +439,133 @@ fn notify_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
     }
 }
 
+fn notify_partial_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
+    if let Ok(jtxt) = env.new_string(text) {
+        let _ = env.call_method(
+            obj,
+            "onPartialTextTranscribed",
+            "(Ljava/lang/String;)V",
+            &[(&jtxt).into()],
+        );
+    }
+}
+
+fn root_mean_square(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+
+    let sum = samples.iter().map(|sample| sample * sample).sum::<f32>();
+    (sum / samples.len() as f32).sqrt()
+}
+
+fn stop_partial_updates(state: &VoiceSessionState) {
+    state.partial_stop_flag.store(true, Ordering::Release);
+    let _ = state.partial_session_id.fetch_add(1, Ordering::AcqRel);
+    state.last_partial_emitted.lock().unwrap().clear();
+    state.last_partial_window.lock().unwrap().clear();
+}
+
+fn start_partial_updates(state: &VoiceSessionState) {
+    state.partial_stop_flag.store(false, Ordering::Release);
+    let session_id = state.partial_session_id.fetch_add(1, Ordering::AcqRel) + 1;
+    state.last_partial_emitted.lock().unwrap().clear();
+
+    let partial_stop_flag = state.partial_stop_flag.clone();
+    let partial_session_id = state.partial_session_id.clone();
+    let audio_buffer = state.audio_buffer.clone();
+    let partial_audio_window = state.partial_audio_window.clone();
+    let partial_samples_written = state.partial_samples_written.clone();
+    let jvm = state.jvm.clone();
+    let target_ref = state.target_ref.clone();
+    let last_partial_emitted = state.last_partial_emitted.clone();
+    let last_partial_window = state.last_partial_window.clone();
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(PARTIAL_WARMUP_MILLIS));
+        let mut last_snapshot_written: usize = 0;
+
+        loop {
+            let is_active = !partial_stop_flag.load(Ordering::Acquire)
+                && partial_session_id.load(Ordering::Acquire) == session_id;
+            if !is_active {
+                break;
+            }
+
+            let total_samples_written = partial_samples_written.load(Ordering::Acquire) as usize;
+            let recent_samples = {
+                partial_audio_window
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<f32>>()
+            };
+            let samples_snapshot = {
+                audio_buffer.lock().unwrap().clone()
+            };
+
+            if total_samples_written >= PARTIAL_MIN_AUDIO_SAMPLES
+                && samples_snapshot.len() >= PARTIAL_MIN_AUDIO_SAMPLES
+            {
+                if root_mean_square(&recent_samples) < PARTIAL_MIN_RMS {
+                    last_snapshot_written = total_samples_written;
+                    last_partial_emitted.lock().unwrap().clear();
+                    last_partial_window.lock().unwrap().clear();
+                    std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+                    continue;
+                }
+
+                let new_samples = total_samples_written.saturating_sub(last_snapshot_written);
+                if last_snapshot_written > 0 && new_samples < PARTIAL_MIN_NEW_SAMPLES {
+                    std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+                    continue;
+                }
+
+                if let Some(engine) = get_engine() {
+                    let result = if let Ok(mut eng) = engine.try_lock() {
+                        last_snapshot_written = total_samples_written;
+                        eng.transcribe_samples(samples_snapshot, None)
+                    } else {
+                        std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+                        continue;
+                    };
+
+                    let still_active = !partial_stop_flag.load(Ordering::Acquire)
+                        && partial_session_id.load(Ordering::Acquire) == session_id;
+                    if !still_active {
+                        break;
+                    }
+
+                    if let Ok(transcription) = result {
+                        let cleaned_text = transcription.text.trim().to_string();
+                        let partial_text = {
+                            let mut previous = last_partial_emitted.lock().unwrap();
+                            if cleaned_text.is_empty() || cleaned_text == previous.as_str() {
+                                None
+                            } else {
+                                *previous = cleaned_text.clone();
+                                last_partial_window.lock().unwrap().clear();
+                                Some(cleaned_text)
+                            }
+                        };
+
+                        if let Some(partial) = partial_text {
+                            if let Ok(mut env) = jvm.attach_current_thread() {
+                                notify_partial_text(&mut env, target_ref.as_obj(), partial.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+
+            std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+        }
+    });
+}
+
 fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    stop_partial_updates(state);
     let host = cpal::default_host();
     let device = match host.default_input_device() {
         Some(device) => device,
@@ -437,7 +586,11 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
     };
 
     state.audio_buffer.lock().unwrap().clear();
+    state.partial_audio_window.lock().unwrap().clear();
+    state.partial_samples_written.store(0, Ordering::Release);
     let buffer_clone = state.audio_buffer.clone();
+    let partial_window_clone = state.partial_audio_window.clone();
+    let partial_samples_written = state.partial_samples_written.clone();
     let jvm = state.jvm.clone();
     let target_ref = state.target_ref.clone();
     let last_sent = state.last_level_sent.clone();
@@ -446,6 +599,16 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
         &config,
         move |data: &[f32], _: &_| {
             buffer_clone.lock().unwrap().extend_from_slice(data);
+            if let Ok(mut partial_window) = partial_window_clone.try_lock() {
+                partial_window.extend(data.iter().copied());
+                let overflow = partial_window
+                    .len()
+                    .saturating_sub(PARTIAL_MAX_WINDOW_SAMPLES);
+                if overflow > 0 {
+                    partial_window.drain(..overflow);
+                }
+                partial_samples_written.fetch_add(data.len() as u64, Ordering::AcqRel);
+            }
 
             let mut sum = 0.0f32;
             for &sample in data {
@@ -474,6 +637,7 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
         Ok(stream) => {
             if stream.play().is_ok() {
                 state.stream = Some(SendStream(stream));
+                start_partial_updates(state);
                 notify_status(&mut env, state.target_ref.as_obj(), "Listening...");
             } else {
                 notify_status(
@@ -494,7 +658,10 @@ fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 }
 
 fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    stop_partial_updates(state);
     state.stream = None;
+    state.partial_audio_window.lock().unwrap().clear();
+    state.partial_samples_written.store(0, Ordering::Release);
 
     let buffer = state.audio_buffer.lock().unwrap().clone();
     if buffer.is_empty() {
@@ -555,8 +722,11 @@ fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
 }
 
 fn voice_cancel_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
+    stop_partial_updates(state);
     state.stream = None;
     state.audio_buffer.lock().unwrap().clear();
+    state.partial_audio_window.lock().unwrap().clear();
+    state.partial_samples_written.store(0, Ordering::Release);
     notify_status(&mut env, state.target_ref.as_obj(), "Canceled");
 }
 
@@ -585,12 +755,19 @@ pub unsafe extern "system" fn Java_com_sublime_supersherpa_core_rust_RustTranscr
         .lock()
         .unwrap()
         .as_ref()
-        .map(|current_target| env.is_same_object(current_target.as_obj(), &target).unwrap_or(false))
+        .map(|current_target| {
+            env.is_same_object(current_target.as_obj(), &target)
+                .unwrap_or(false)
+        })
         .unwrap_or(true);
 
     if should_cleanup {
         reset_loaded_engine_state();
-        *VOICE_SESSION.lock().unwrap() = None;
+        let mut guard = VOICE_SESSION.lock().unwrap();
+        if let Some(state) = guard.as_ref() {
+            stop_partial_updates(state);
+        }
+        *guard = None;
         *GLOBAL_CONTEXT.lock().unwrap() = None;
         *MODEL_DIRECTORY_OVERRIDE.lock().unwrap() = None;
     }
