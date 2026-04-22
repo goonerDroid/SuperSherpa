@@ -87,7 +87,7 @@ class TranscriptionViewModel(
             }
             NativeTranscriptionMessage.Ready -> setAudioLevel(0f)
             NativeTranscriptionMessage.Canceled -> reset()
-            is NativeTranscriptionMessage.Transcript -> Unit
+            NativeTranscriptionMessage.Unknown -> Unit
         }
     }
 
