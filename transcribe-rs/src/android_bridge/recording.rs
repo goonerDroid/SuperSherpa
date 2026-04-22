@@ -218,7 +218,6 @@ pub(super) fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionStat
 
                 let mut final_text = squash_repeated_words(pass_one_transcription.text.as_str());
                 if should_run_verification(final_text.as_str(), preview_at_stop.as_str()) {
-                    notify_status(&mut env, obj, "Verifying...");
                     let verification_result = {
                         let mut eng = engine.lock().unwrap();
                         eng.transcribe_samples(verification_audio, None)
@@ -228,14 +227,12 @@ pub(super) fn voice_stop_recording(mut env: JNIEnv, state: &mut VoiceSessionStat
                             final_text =
                                 squash_repeated_words(verified_transcription.text.as_str());
                         }
-                        Err(_) => {
-                            notify_status(
-                                &mut env,
-                                obj,
-                                "Verification unavailable. Using first pass.",
-                            );
-                        }
+                        Err(_) => {}
                     }
+                }
+
+                if partial_session_id.load(Ordering::Acquire) != stop_session_id {
+                    return;
                 }
 
                 notify_status(&mut env, obj, "Ready");

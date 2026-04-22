@@ -18,7 +18,6 @@ internal fun parseNativeTranscriptionMessage(message: String): NativeTranscripti
         )
         message == "Listening..." -> NativeTranscriptionMessage.Listening
         message == "Transcribing..." -> NativeTranscriptionMessage.Processing
-        message == "Verifying..." -> NativeTranscriptionMessage.Processing
         message == "Ready" -> NativeTranscriptionMessage.Ready
         message == "Canceled" -> NativeTranscriptionMessage.Canceled
         else -> NativeTranscriptionMessage.Transcript(message.trim())
