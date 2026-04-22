@@ -5,8 +5,8 @@ internal sealed interface NativeTranscriptionMessage {
     data object Processing : NativeTranscriptionMessage
     data object Ready : NativeTranscriptionMessage
     data object Canceled : NativeTranscriptionMessage
+    data object Unknown : NativeTranscriptionMessage
     data class Error(val message: String) : NativeTranscriptionMessage
-    data class Transcript(val text: String) : NativeTranscriptionMessage
 }
 
 internal fun parseNativeTranscriptionMessage(message: String): NativeTranscriptionMessage =
@@ -20,7 +20,7 @@ internal fun parseNativeTranscriptionMessage(message: String): NativeTranscripti
         message == "Transcribing..." -> NativeTranscriptionMessage.Processing
         message == "Ready" -> NativeTranscriptionMessage.Ready
         message == "Canceled" -> NativeTranscriptionMessage.Canceled
-        else -> NativeTranscriptionMessage.Transcript(message.trim())
+        else -> NativeTranscriptionMessage.Unknown
     }
 
 internal fun normalizeNativeErrorMessage(message: String): String {

@@ -165,11 +165,7 @@ class TranscriptionImeService : BaseKeyboardIME<ImeKeyboardLibraryBinding>() {
                     stopPartialTypingAnimation(resetDisplayedText = true)
                     isAwaitingCommit = false
                 }
-                is NativeTranscriptionMessage.Transcript -> {
-                    if (voiceBarPhase == VoiceBarPhase.Idle) {
-                        latestTranscript = event.text
-                    }
-                }
+                NativeTranscriptionMessage.Unknown -> Unit
             }
             renderVoiceBar()
         }
