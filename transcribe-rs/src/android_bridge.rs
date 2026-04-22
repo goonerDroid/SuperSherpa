@@ -22,10 +22,11 @@ static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
 
 const MODEL_DIR_NAME: &str = "parakeet-tdt-0.6b-v3-int8";
 const PARTIAL_WARMUP_MILLIS: u64 = 300;
-const PARTIAL_INTERVAL_MILLIS: u64 = 250;
+const PARTIAL_INTERVAL_MILLIS: u64 = 750;
 const PARTIAL_MIN_AUDIO_SAMPLES: usize = 3_200;
-const PARTIAL_MIN_NEW_SAMPLES: usize = 1_600;
+const PARTIAL_MIN_NEW_SAMPLES: usize = 12_000;
 const PARTIAL_MAX_WINDOW_SAMPLES: usize = 16_000 * 8;
+const PARTIAL_MIN_RMS: f32 = 0.003;
 const REQUIRED_MODEL_FILES: [&str; 4] = [
     "vocab.txt",
     "encoder-model.int8.onnx",
@@ -57,6 +58,7 @@ struct VoiceSessionState {
     partial_session_id: Arc<AtomicU64>,
     partial_samples_written: Arc<AtomicU64>,
     last_partial_emitted: Arc<Mutex<String>>,
+    last_partial_window: Arc<Mutex<String>>,
 }
 
 fn notify_status(env: &mut JNIEnv, obj: &jni::objects::JObject, msg: &str) {
@@ -404,6 +406,7 @@ fn init_voice_session(env: JNIEnv, activity: JObject) -> Result<(), String> {
         partial_session_id: Arc::new(AtomicU64::new(0)),
         partial_samples_written: Arc::new(AtomicU64::new(0)),
         last_partial_emitted: Arc::new(Mutex::new(String::new())),
+        last_partial_window: Arc::new(Mutex::new(String::new())),
     };
 
     let vm_clone = vm_arc.clone();
@@ -447,73 +450,20 @@ fn notify_partial_text(env: &mut JNIEnv, obj: &JObject, text: &str) {
     }
 }
 
-fn char_count(text: &str) -> usize {
-    text.chars().count()
-}
-
-fn prefix_chars(text: &str, count: usize) -> String {
-    text.chars().take(count).collect()
-}
-
-fn suffix_chars(text: &str, count: usize) -> String {
-    let total = char_count(text);
-    text.chars().skip(total.saturating_sub(count)).collect()
-}
-
-fn drop_prefix_chars(text: &str, count: usize) -> String {
-    text.chars().skip(count).collect()
-}
-
-fn merge_partial_transcript(previous: &str, candidate: &str) -> String {
-    let previous_trimmed = previous.trim();
-    let candidate_trimmed = candidate.trim();
-
-    if candidate_trimmed.is_empty() {
-        return previous_trimmed.to_string();
+fn root_mean_square(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
     }
 
-    if previous_trimmed.is_empty() {
-        return candidate_trimmed.to_string();
-    }
-
-    if candidate_trimmed == previous_trimmed {
-        return previous_trimmed.to_string();
-    }
-
-    if candidate_trimmed.starts_with(previous_trimmed) {
-        return candidate_trimmed.to_string();
-    }
-
-    let previous_len = char_count(previous_trimmed);
-    let candidate_len = char_count(candidate_trimmed);
-
-    if previous_trimmed.starts_with(candidate_trimmed) && candidate_len + 6 < previous_len {
-        return previous_trimmed.to_string();
-    }
-
-    let max_overlap = previous_len.min(candidate_len);
-    for overlap_len in (3..=max_overlap).rev() {
-        let previous_suffix = suffix_chars(previous_trimmed, overlap_len);
-        let candidate_prefix = prefix_chars(candidate_trimmed, overlap_len);
-        if previous_suffix.eq_ignore_ascii_case(candidate_prefix.as_str()) {
-            let candidate_suffix = drop_prefix_chars(candidate_trimmed, overlap_len);
-            return format!("{previous_trimmed}{candidate_suffix}")
-                .trim()
-                .to_string();
-        }
-    }
-
-    if candidate_len + 2 >= previous_len {
-        return candidate_trimmed.to_string();
-    }
-
-    previous_trimmed.to_string()
+    let sum = samples.iter().map(|sample| sample * sample).sum::<f32>();
+    (sum / samples.len() as f32).sqrt()
 }
 
 fn stop_partial_updates(state: &VoiceSessionState) {
     state.partial_stop_flag.store(true, Ordering::Release);
     let _ = state.partial_session_id.fetch_add(1, Ordering::AcqRel);
     state.last_partial_emitted.lock().unwrap().clear();
+    state.last_partial_window.lock().unwrap().clear();
 }
 
 fn start_partial_updates(state: &VoiceSessionState) {
@@ -523,11 +473,13 @@ fn start_partial_updates(state: &VoiceSessionState) {
 
     let partial_stop_flag = state.partial_stop_flag.clone();
     let partial_session_id = state.partial_session_id.clone();
+    let audio_buffer = state.audio_buffer.clone();
     let partial_audio_window = state.partial_audio_window.clone();
     let partial_samples_written = state.partial_samples_written.clone();
     let jvm = state.jvm.clone();
     let target_ref = state.target_ref.clone();
     let last_partial_emitted = state.last_partial_emitted.clone();
+    let last_partial_window = state.last_partial_window.clone();
 
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(PARTIAL_WARMUP_MILLIS));
@@ -541,19 +493,29 @@ fn start_partial_updates(state: &VoiceSessionState) {
             }
 
             let total_samples_written = partial_samples_written.load(Ordering::Acquire) as usize;
-            let (windowed_samples, samples_snapshot) = {
-                let buffer = partial_audio_window.lock().unwrap();
-                let windowed = buffer.len();
-                if windowed < PARTIAL_MIN_AUDIO_SAMPLES {
-                    (windowed, Vec::new())
-                } else {
-                    (windowed, buffer.iter().copied().collect::<Vec<f32>>())
-                }
+            let recent_samples = {
+                partial_audio_window
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<f32>>()
+            };
+            let samples_snapshot = {
+                audio_buffer.lock().unwrap().clone()
             };
 
             if total_samples_written >= PARTIAL_MIN_AUDIO_SAMPLES
-                && windowed_samples >= PARTIAL_MIN_AUDIO_SAMPLES
+                && samples_snapshot.len() >= PARTIAL_MIN_AUDIO_SAMPLES
             {
+                if root_mean_square(&recent_samples) < PARTIAL_MIN_RMS {
+                    last_snapshot_written = total_samples_written;
+                    last_partial_emitted.lock().unwrap().clear();
+                    last_partial_window.lock().unwrap().clear();
+                    std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
+                    continue;
+                }
+
                 let new_samples = total_samples_written.saturating_sub(last_snapshot_written);
                 if last_snapshot_written > 0 && new_samples < PARTIAL_MIN_NEW_SAMPLES {
                     std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
@@ -577,21 +539,20 @@ fn start_partial_updates(state: &VoiceSessionState) {
 
                     if let Ok(transcription) = result {
                         let cleaned_text = transcription.text.trim().to_string();
-                        let merged_text = {
+                        let partial_text = {
                             let mut previous = last_partial_emitted.lock().unwrap();
-                            let merged =
-                                merge_partial_transcript(previous.as_str(), cleaned_text.as_str());
-                            if merged.is_empty() || merged == previous.as_str() {
+                            if cleaned_text.is_empty() || cleaned_text == previous.as_str() {
                                 None
                             } else {
-                                *previous = merged.clone();
-                                Some(merged)
+                                *previous = cleaned_text.clone();
+                                last_partial_window.lock().unwrap().clear();
+                                Some(cleaned_text)
                             }
                         };
 
-                        if let Some(merged) = merged_text {
+                        if let Some(partial) = partial_text {
                             if let Ok(mut env) = jvm.attach_current_thread() {
-                                notify_partial_text(&mut env, target_ref.as_obj(), merged.as_str());
+                                notify_partial_text(&mut env, target_ref.as_obj(), partial.as_str());
                             }
                         }
                     }
@@ -601,41 +562,6 @@ fn start_partial_updates(state: &VoiceSessionState) {
             std::thread::sleep(Duration::from_millis(PARTIAL_INTERVAL_MILLIS));
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::merge_partial_transcript;
-
-    #[test]
-    fn merge_partial_extension_uses_candidate() {
-        let merged = merge_partial_transcript("hello", "hello world");
-        assert_eq!(merged, "hello world");
-    }
-
-    #[test]
-    fn merge_partial_overlap_stitches_text() {
-        let merged = merge_partial_transcript("hello wor", "world today");
-        assert_eq!(merged, "hello world today");
-    }
-
-    #[test]
-    fn merge_partial_accepts_similar_length_correction() {
-        let merged = merge_partial_transcript("hello wrld", "hello world");
-        assert_eq!(merged, "hello world");
-    }
-
-    #[test]
-    fn merge_partial_ignores_short_regression_chunk() {
-        let merged = merge_partial_transcript("hello world from android", "hello world");
-        assert_eq!(merged, "hello world from android");
-    }
-
-    #[test]
-    fn merge_partial_ignores_blank_candidate() {
-        let merged = merge_partial_transcript("hello world", "   ");
-        assert_eq!(merged, "hello world");
-    }
 }
 
 fn voice_start_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
